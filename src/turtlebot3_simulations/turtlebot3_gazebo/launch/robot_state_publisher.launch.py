@@ -44,6 +44,7 @@ def generate_launch_description():
                 default_value="false",
                 description="Use simulation (Gazebo) clock if true",
             ),
+            # 调用ros2的robot_state_publisher包，发布机器人状态信息，参数是urdf文件路径和是否使用模拟时间
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",
