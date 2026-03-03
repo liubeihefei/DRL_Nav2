@@ -26,6 +26,7 @@ class SensorSubscriber(Node):
         self.latest_position = None
         self.latest_heading = None
         self.latest_scan = None
+        self.latest_vel = None
 
     def scan_listener_callback(self, msg):
         self.latest_scan = msg.ranges[:]
@@ -33,10 +34,12 @@ class SensorSubscriber(Node):
     def odom_listener_callback(self, msg):
         self.latest_position = msg.pose.pose.position
         self.latest_heading = msg.pose.pose.orientation
+        # 装入线速度角速度
+        self.latest_vel = [msg.twist.twist.linear.x, msg.twist.twist.angular.z]
 
     def get_latest_sensor(self):
         # print(self.latest_scan, self.latest_position, self.latest_heading)
-        return self.latest_scan, self.latest_position, self.latest_heading
+        return self.latest_scan, self.latest_position, self.latest_heading, self.latest_vel
 
 
 class ScanSubscriber(Node):

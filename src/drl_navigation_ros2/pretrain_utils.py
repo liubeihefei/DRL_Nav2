@@ -30,9 +30,11 @@ class Pretraining:
                     collision = sample["collision"]
                     goal = sample["goal"]
                     action = sample["action"]
+                    # 空的vel
+                    vel = [0, 0]
 
                     state, terminal = self.model.prepare_state(
-                        latest_scan, distance, cos, sin, collision, goal, action
+                        latest_scan, distance, cos, sin, collision, goal, action, vel
                     )
 
                     if terminal:
@@ -46,6 +48,8 @@ class Pretraining:
                     next_collision = next_sample["collision"]
                     next_goal = next_sample["goal"]
                     next_action = next_sample["action"]
+                    # 空的vel
+                    vel = [0, 0]
                     next_state, next_terminal = self.model.prepare_state(
                         next_latest_scan,
                         next_distance,
@@ -54,9 +58,10 @@ class Pretraining:
                         next_collision,
                         next_goal,
                         next_action,
+                        vel,
                     )
                     reward = self.reward_function(
-                        next_goal, next_collision, action, next_latest_scan
+                        next_goal, next_collision, action, next_latest_scan, distance, next_distance
                     )
                     self.replay_buffer.add(
                         state, action, reward, next_terminal, next_state

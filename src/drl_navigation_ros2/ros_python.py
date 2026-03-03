@@ -47,7 +47,7 @@ class ROS_env:
         self.collision_delta = collision_delta
         self.target = self.set_target_position([0.0, 0.0])
 
-    def step(self, lin_velocity=0.0, ang_velocity=0.1):
+    def step(self, lin_velocity=0.0, ang_velocity=0.1, last_distance=0.0):
         self.cmd_vel_publisher.publish_cmd_vel(lin_velocity, ang_velocity)
         self.physics_client.unpause_physics()
         time.sleep(0.1)
@@ -58,6 +58,7 @@ class ROS_env:
             latest_scan,
             latest_position,
             latest_orientation,
+            latest_vel
         ) = self.sensor_subscriber.get_latest_sensor()
 
         distance, cos, sin, _ = self.get_dist_sincos(
@@ -66,9 +67,9 @@ class ROS_env:
         collision = self.check_collision(latest_scan)
         goal = self.check_target(distance, collision)
         action = [lin_velocity, ang_velocity]
-        reward = self.get_reward(goal, collision, action, latest_scan)
+        reward = self.get_reward(goal, collision, action, latest_scan, last_distance, distance)
 
-        return latest_scan, distance, cos, sin, collision, goal, action, reward
+        return latest_scan, distance, cos, sin, collision, goal, action, reward, latest_vel
 
     def reset(self):
         self.world_reset.reset_world()
@@ -87,10 +88,10 @@ class ROS_env:
 
         self.publish_target.publish(self.target[0], self.target[1])
 
-        latest_scan, distance, cos, sin, _, _, action, reward = self.step(
+        latest_scan, distance, cos, sin, _, _, action, reward, vel = self.step(
             lin_velocity=action[0], ang_velocity=action[1]
         )
-        return latest_scan, distance, cos, sin, False, False, action, reward
+        return latest_scan, distance, cos, sin, False, False, action, reward, vel
 
     def eval(self, scenario):
         self.cmd_vel_publisher.publish_cmd_vel(0.0, 0.0)
@@ -103,10 +104,10 @@ class ROS_env:
 
         self.physics_client.unpause_physics()
         time.sleep(1)
-        latest_scan, distance, cos, sin, _, _, a, reward = self.step(
+        latest_scan, distance, cos, sin, _, _, a, reward, vel = self.step(
             lin_velocity=0.0, ang_velocity=0.0
         )
-        return latest_scan, distance, cos, sin, False, False, a, reward
+        return latest_scan, distance, cos, sin, False, False, a, reward, vel
 
     def set_target_position(self, robot_position):
         pos = False
@@ -212,14 +213,16 @@ class ROS_env:
         return distance, cos, sin, angle
 
     @staticmethod
-    def get_reward(goal, collision, action, laser_scan):
+    def get_reward(goal, collision, action, laser_scan, last_distance, distance):
         if goal:
             return 100.0
         elif collision:
-            return -100.0
+            return -160.0
         else:
             r3 = lambda x: 1.35 - x if x < 1.35 else 0.0
+            # return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2 + 10 * (last_distance - distance)
             return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2
+            # return last_distance - distance
 
     @staticmethod
     def cossin(vec1, vec2):

@@ -19,6 +19,7 @@ class SAC(object):
         action_dim,
         device,
         max_action,
+        history_n,
         discount=0.99,
         init_temperature=0.1,
         alpha_lr=1e-4,
@@ -53,6 +54,7 @@ class SAC(object):
         self.model_name = model_name
         self.save_directory = save_directory
         self.log_dist_and_hist = log_dist_and_hist
+        self.history_n = history_n
 
         self.train_metrics_dict = { "train_critic/loss_av": [],
                                     "train_actor/loss_av": [],
@@ -64,24 +66,27 @@ class SAC(object):
         }
 
         self.critic = critic_model(
-            obs_dim=self.state_dim,
+            obs_dim=self.state_dim * self.history_n,
             action_dim=action_dim,
             hidden_dim=1024,
             hidden_depth=2,
+            # hidden_depth=5,
         ).to(self.device)
         self.critic_target = critic_model(
-            obs_dim=self.state_dim,
+            obs_dim=self.state_dim * self.history_n,
             action_dim=action_dim,
             hidden_dim=1024,
             hidden_depth=2,
+            # hidden_depth=5,
         ).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         self.actor = actor_model(
-            obs_dim=self.state_dim,
+            obs_dim=self.state_dim * self.history_n,
             action_dim=action_dim,
             hidden_dim=1024,
             hidden_depth=2,
+            # hidden_depth=5,
             log_std_bounds=[-5, 2],
         ).to(self.device)
 
@@ -252,14 +257,17 @@ class SAC(object):
         if step % self.critic_target_update_frequency == 0:
             utils.soft_update_params(self.critic, self.critic_target, self.critic_tau)
 
-    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
+    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel):
         # update the returned data from ROS into a form used for learning in the current model
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
         latest_scan[inf_mask] = 7.0
 
+        # 不带速度，源码
         max_bins = self.state_dim - 5
+        # 带速度
+        # max_bins = self.state_dim - 7
         bin_size = int(np.ceil(len(latest_scan) / max_bins))
 
         # Initialize the list to store the minimum values of each bin
@@ -271,7 +279,11 @@ class SAC(object):
             bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
             # Find the minimum value in the current bin and append it to the min_values list
             min_values.append(min(bin))
+
+        # 不带当前速度
         state = min_values + [distance, cos, sin] + [action[0], action[1]]
+        # 带当前速度
+        # state = min_values + [distance, cos, sin] + [action[0], action[1]] + vel
 
         assert len(state) == self.state_dim
         terminal = 1 if collision or goal else 0

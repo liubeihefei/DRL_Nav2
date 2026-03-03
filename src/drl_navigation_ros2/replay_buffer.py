@@ -27,6 +27,7 @@ class ReplayBuffer(object):
         return self.count
 
     def sample_batch(self, batch_size):
+        # 源码处理
         if self.count < batch_size:
             batch = random.sample(self.buffer, self.count)
         else:
