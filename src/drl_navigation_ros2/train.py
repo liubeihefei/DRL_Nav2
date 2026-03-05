@@ -13,7 +13,7 @@ from pretrain_utils import Pretraining
 def main(args=None):
     """Main training function"""
     action_dim = 2  # number of actions produced by the model
-    max_action = 1  # maximum absolute value of output actions
+    max_action = 2.5  # 1，maximum absolute value of output actions
     state_dim = 25  # number of input values in the neural network (vector length of state input)
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
@@ -106,11 +106,19 @@ def main(args=None):
         # 获取动作
         action = model.get_action(history_state, True)  # get an action from the model
 
+        # # 动作截断
+        # a_in = [
+        #     (action[0] + 1) / 2,
+        #     action[1],
+        # ]  # clip linear velocity to [0, 0.5] m/s range
+
         # 动作截断
         a_in = [
-            (action[0] + 1) / 2,
-            action[1],
-        ]  # clip linear velocity to [0, 0.5] m/s range
+            # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
+            (action[0] + 2.5) / 2.0,
+            # 角速度为[-2.5, 2.5]，缩放到[-1, 1]
+            action[1] / 2.5,
+        ]
         
         # 获取下一状态表示
         latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(
@@ -211,7 +219,15 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
             # 多帧历史处理
             action = model.get_action(history_state, False)
 
-            a_in = [(action[0] + 1) / 2, action[1]]
+            # a_in = [(action[0] + 1) / 2, action[1]]
+            # 动作截断
+            a_in = [
+                # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
+                (action[0] + 2.5) / 2.0,
+                # 角速度为[-2.5, 2.5]，缩放到[-1, 1]
+                action[1] / 2.5,
+            ]
+
             latest_scan, distance, cos, sin, collision, goal, a, reward, vel = env.step(
                 lin_velocity=a_in[0], ang_velocity=a_in[1], last_distance=last_distance
             )
