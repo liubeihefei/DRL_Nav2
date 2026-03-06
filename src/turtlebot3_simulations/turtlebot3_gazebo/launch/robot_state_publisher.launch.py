@@ -37,6 +37,8 @@ def generate_launch_description():
         get_package_share_directory("turtlebot3_description"), "urdf", urdf_file_name
     )
 
+    print(urdf)
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(

@@ -14,6 +14,12 @@ import numpy as np
 from geometry_msgs.msg import Pose, Twist
 from squaternion import Quaternion
 
+# 添加环境解析工具
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'tools'))
+from world_parse import ObjectInfo, WorldParser
+
 
 # 仿真环境类
 class ROS_env:
@@ -24,9 +30,28 @@ class ROS_env:
         max_target_dist=8.0,        # 目标距离的最大值
         target_reached_delta=0.5,   # 到达目标的距离阈值
         collision_delta=0.4,        # 发生碰撞的距离阈值
+        use_diy_world=False,        # 是否使用自定义环境
+        diy_world_path=None,        # 自定义环境文件路径
+        obj_cache_path=None,        # 物体信息缓存路径
+        world_size=100.0,           # 自定义环境大小，默认正方形，单位为米
         args=None,
     ):
         rclpy.init(args=args)
+        # 是否使用自定义环境、自定义环境文件路径、自定义环境边界
+        self.use_diy_world = use_diy_world
+        self.diy_world_path = diy_world_path
+        self.obj_cache_path = obj_cache_path
+        self.world_bounds = [-world_size / 2.0, world_size / 2.0]
+
+        # 如果使用自定义环境，解析环境文件获取初始物体位置和外接框
+        if self.use_diy_world:
+            if self.obj_cache_path is None:
+                self.parser = WorldParser(os.path.expanduser("~/.gazebo/models"))
+                self.objects = self.parser.parse_world_file(self.diy_world_path)
+            else:
+                self.parser = WorldParser(os.path.expanduser("~/.gazebo/models"))
+                self.objects = self.parser.load_objects(self.obj_cache_path)
+
         # 速度指令发布者
         self.cmd_vel_publisher = CmdVelPublisher()
 
@@ -104,24 +129,40 @@ class ROS_env:
 
     # 重置环境
     def reset(self):
-        # 重置世界，此时机器人仅是位置复原，可能还有速度
-        self.world_reset.reset_world()
+        if not self.use_diy_world:
+            # 重置世界，此时机器人仅是位置复原，可能还有速度
+            self.world_reset.reset_world()
         # 发布0速度让机器人停下
         action = [0.0, 0.0]
         self.cmd_vel_publisher.publish_cmd_vel(
             linear_velocity=action[0], angular_velocity=action[1]
         )
 
-        # 重置障碍物位置记录（如源码设置一次环境后是8个随机障碍物，但此时需要变回4个）
-        # 为后面重新设置随机障碍物等位置做准备
-        self.element_positions = [
-            [-2.93, 3.17],
-            [2.86, -3.0],
-            [-2.77, -0.96],
-            [2.83, 2.93],
-        ]
-        # 重新设置四个随机障碍物的位置和机器人位置、目标位置
-        self.set_positions()
+        # 若使用自定义环境
+        if self.use_diy_world:
+            # 生成机器人和目标位置
+            robot_pos, target_pos = self.generate_robot_and_target(
+                robot_min_dist=1.8,       # 机器人到障碍物的最小距离
+                target_min_dist=1.8       # 目标到障碍物的最小距离
+            )
+            
+            # 设置机器人位置
+            robot_angle = np.random.uniform(-np.pi, np.pi)
+            self.set_position("turtlebot3_waffle", robot_pos[0], robot_pos[1], robot_angle)
+            # 设置目标
+            self.target = list(target_pos)
+
+        # 若使用源码环境
+        else:
+            # 重置障碍物位置记录（如源码设置一次环境后是8个随机障碍物，但此时需要变回4个），为后面重新设置随机障碍物等位置做准备
+            self.element_positions = [
+                [-2.93, 3.17],
+                [2.86, -3.0],
+                [-2.77, -0.96],
+                [2.83, 2.93],
+            ]
+            # 重新设置四个随机障碍物的位置和机器人位置、目标位置
+            self.set_positions()
 
         # 发布可视化目标点
         self.publish_target.publish(self.target[0], self.target[1])
@@ -265,6 +306,127 @@ class ROS_env:
         cos, sin = self.cossin(pose_vector, goal_vector)
 
         return distance, cos, sin, angle
+
+
+    # 计算点到线段的最小距离
+    def point_to_segment_distance(self, p, a, b):
+        # 向量AB
+        ab = (b[0] - a[0], b[1] - a[1])
+        # 向量AP
+        ap = (p[0] - a[0], p[1] - a[1])
+        
+        # 计算投影参数t
+        ab_len_sq = ab[0]**2 + ab[1]**2
+        if ab_len_sq == 0:
+            return np.linalg.norm(ap)
+        
+        t = (ap[0]*ab[0] + ap[1]*ab[1]) / ab_len_sq
+        
+        if t < 0:
+            # 投影在A点之外
+            return np.linalg.norm(ap)
+        elif t > 1:
+            # 投影在B点之外
+            bp = (p[0] - b[0], p[1] - b[1])
+            return np.linalg.norm(bp)
+        else:
+            # 投影在线段上
+            projection = (a[0] + t*ab[0], a[1] + t*ab[1])
+            return np.linalg.norm((p[0] - projection[0], p[1] - projection[1]))
+
+    # 计算点到多边形的最小距离
+    def point_to_polygon_distance(self, point, polygon):
+        # 计算点到多边形每条边的距离
+        min_dist = float('inf')
+        n = len(polygon)
+        for i in range(n):
+            a = polygon[i]
+            b = polygon[(i + 1) % n]
+            dist = self.point_to_segment_distance(point, a, b)
+            min_dist = min(min_dist, dist)
+        
+        return min_dist
+    
+    # 判断点是否在多边形内部（射线法）
+    def point_in_polygon(self, point, polygon):
+        x, y = point
+        n = len(polygon)
+        inside = False
+        
+        p1x, p1y = polygon[0]
+        for i in range(1, n + 1):
+            p2x, p2y = polygon[i % n]
+            
+            # 检查射线是否与边相交
+            if y > min(p1y, p2y):
+                if y <= max(p1y, p2y):
+                    if x <= max(p1x, p2x):
+                        if p1y != p2y:
+                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                        if p1x == p2x or x <= xinters:
+                            inside = not inside
+            p1x, p1y = p2x, p2y
+        
+        return inside
+
+    # 检查点是否与任何障碍物发生碰撞
+    def check_point_collision(self, point, min_dist):
+        for obj in self.objects:
+            # 判断点是否在物体内部
+            if self.point_in_polygon(point, obj.corners_2d):
+                return False
+
+            # 判断点是否离物体太近
+            dist = self.point_to_polygon_distance(point, obj.corners_2d)
+            if dist < min_dist:
+                return False  
+        
+        return True  # 点有效
+    
+    # 随机生成一个位置，确保与所有障碍物的距离大于阈值
+    def generate_random_position(self, min_dist):
+        while True:
+            # 随机生成一个位置
+            x = np.random.uniform(self.world_bounds[0], self.world_bounds[1])
+            y = np.random.uniform(self.world_bounds[0], self.world_bounds[1])
+            
+            # 判断是否发生碰撞，包括在障碍物内部和距离障碍物太近两种情况
+            if self.check_point_collision((x, y), min_dist):
+                return (x, y)
+    
+    # 生成机器人位置，确保与所有障碍物的距离大于距离阈值
+    def generate_robot_position(self, min_dist):
+        return self.generate_random_position(min_dist)
+    
+    # 生成目标位置，确保与机器人距离为目标距离，并且与所有障碍物的距离大于距离阈值
+    def generate_target_position(self, robot_position, min_dist):
+        while True:
+            # 计算目标位置
+            x = np.clip(
+                robot_position[0]
+                + np.random.uniform(-self.target_dist, self.target_dist),
+                self.world_bounds[0], self.world_bounds[1]
+            )
+            y = np.clip(
+                robot_position[1]
+                + np.random.uniform(-self.target_dist, self.target_dist),
+                self.world_bounds[0], self.world_bounds[1]
+            )
+            
+            # 检查目标位置是否有效
+            if self.check_point_collision((x, y), min_dist):
+                return (x, y)
+    
+    # 生成机器人和目标位置
+    def generate_robot_and_target(self, robot_min_dist, target_min_dist):
+        # 先生成机器人位置
+        robot_pos = self.generate_robot_position(robot_min_dist)
+        
+        # 然后生成目标位置
+        target_pos = self.generate_target_position(robot_pos, target_min_dist)
+        
+        return robot_pos, target_pos
+
 
     @staticmethod
     def get_reward(goal, collision, action, laser_scan, last_distance, distance):

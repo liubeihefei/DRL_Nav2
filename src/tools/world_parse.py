@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 import numpy as np
 import os
+import json
 from typing import List, Tuple, Optional, Dict
 from dataclasses import dataclass
 import trimesh
@@ -83,6 +84,37 @@ class WorldParser:
                     corners_2d=corners
                 ))
         
+        return objects
+
+    def save_objects(self, objects: List[ObjectInfo], filepath: str):
+        """保存物体信息到文件"""
+        data = []
+        for obj in objects:
+            data.append({
+                'name': obj.name,
+                'position': [obj.position[0], obj.position[1]],
+                'corners_2d': [[x, y] for x, y in obj.corners_2d]
+            })
+        
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+        print(f"已保存 {len(objects)} 个物体到 {filepath}")
+    
+    def load_objects(self, filepath: str) -> List[ObjectInfo]:
+        """从文件加载物体信息"""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        
+        objects = []
+        for item in data:
+            obj = ObjectInfo(
+                name=item['name'],
+                position=(item['position'][0], item['position'][1]),
+                corners_2d=[(x, y) for x, y in item['corners_2d']]
+            )
+            objects.append(obj)
+        
+        print(f"已加载 {len(objects)} 个物体从 {filepath}")
         return objects
 
     def _compute_internal_rotation(self, model: ET.Element) -> float:
@@ -530,8 +562,15 @@ def main():
     parser = WorldParser(gazebo_path)
     
     # 解析世界文件
-    world_file = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/new.model"
+    world_file = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/100by100.model"
     objects = parser.parse_world_file(world_file)
+    
+    # 保存到文件
+    save_file = "objects.json"
+    parser.save_objects(objects, save_file)
+    
+    # 从文件加载
+    loaded_objects = parser.load_objects(save_file)
     
     # 输出结果
     print(f"\n找到 {len(objects)} 个物体\n")

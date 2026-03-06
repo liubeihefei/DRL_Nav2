@@ -24,7 +24,7 @@ def main(args=None):
     episodes_per_epoch = 70  # how many episodes to run in single epoch
     episode = 0  # starting episode number
     train_every_n = 2  # train and update network parameters every n episodes
-    train_every_step = 2 # 每多少步更新一次参数
+    train_every_step = 2  # 每多少步更新一次参数
     training_iterations = 2  # how many batches to use for single training cycle
     batch_size = 40  # batch size for each training iteration
     max_steps = 300  # maximum number of steps in single episode
@@ -38,6 +38,10 @@ def main(args=None):
     history_n = 1  # 使用多少帧历史状态，包含当前
     best_success = 0.0  # 记录最好的测试成功率
     best_reward = 0.0  # 记录最好的测试奖励
+    use_diy_world = True  # 是否使用自定义环境
+    diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/last15.model"  # 自定义环境文件路径
+    obj_cache_path = "/home/horsefly/DRL_Nav2/objects.json"  # 物体信息缓存路径
+    world_size = 100.0   # 自定义环境大小，默认正方形
 
     model = SAC(
         state_dim=state_dim,
@@ -49,7 +53,13 @@ def main(args=None):
         history_n=history_n
     )  # instantiate a model
 
-    ros = ROS_env()  # instantiate ROS environment
+    ros = ROS_env(
+        use_diy_world=use_diy_world,
+        diy_world_path=diy_world_path,
+        obj_cache_path=obj_cache_path,
+        world_size=world_size
+        )  # instantiate ROS environment
+
     eval_scenarios = record_eval_positions(
         n_eval_scenarios=nr_eval_episodes
     )  # save scenarios that will be used for evaluation

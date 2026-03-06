@@ -14,11 +14,17 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time", default="true")
     # Gazebo是否暂停，可能用于调试
     pause = LaunchConfiguration("pause", default="false")
-    # 加载世界文件
-    world_file_name = "turtlebot3_drl/" + TURTLEBOT3_MODEL + ".model"
+
+    # # 加载世界文件
+    # world_file_name = "turtlebot3_drl/" + TURTLEBOT3_MODEL + ".model"
+    # world = os.path.join(
+    #     get_package_share_directory("turtlebot3_gazebo"), "worlds", world_file_name
+    # )
+    # 加载自定义世界文件
     world = os.path.join(
-        get_package_share_directory("turtlebot3_gazebo"), "worlds", world_file_name
+        get_package_share_directory("turtlebot3_gazebo"), "worlds", "diy/last15.model"
     )
+    
     # 获取launch文件目录，用来启动另一个launch文件
     launch_file_dir = os.path.join(
         get_package_share_directory("turtlebot3_gazebo"), "launch"
@@ -36,11 +42,11 @@ def generate_launch_description():
                 launch_arguments={"world": world, "pause": pause}.items(),
             ),
             # gazebo客户端，显示仿真环境，注释后不显示，可无头训练
-            # IncludeLaunchDescription(
-            #     PythonLaunchDescriptionSource(
-            #         os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")
-            #     ),
-            # ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")
+                ),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     [launch_file_dir, "/robot_state_publisher.launch.py"]

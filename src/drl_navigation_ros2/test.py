@@ -6,12 +6,12 @@ from utils import record_eval_positions
 import time
 
 # Configuration parameters
-state_dim = 27
+state_dim = 25
 action_dim = 2
-max_action = 1
+max_action = 2.5
 max_steps = 300
 scenarios_nums = 1000
-history_n = 20
+history_n = 1
 
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -21,7 +21,7 @@ model = SAC(state_dim=state_dim, action_dim=action_dim, max_action=max_action,
            device=device, save_every=0, load_model=False, history_n=history_n)
 
 # Load weights
-model.actor.load_state_dict(torch.load('/home/root/rl/DRL-Robot-Navigation-ROS2/src/drl_navigation_ros2/models/BEST/SAC_actor.pth', map_location=device))
+model.actor.load_state_dict(torch.load('/home/horsefly/下载/BEST/SAC_actor.pth', map_location=device))
 model.actor.eval()
 print("Model loaded successfully")
 
@@ -71,7 +71,14 @@ for i, scenario in enumerate(eval_scenarios):
         # 多帧历史处理
         action = model.get_action(history_state, False)
 
-        a_in = [(action[0] + 1) / 2, action[1]]
+        # a_in = [(action[0] + 1) / 2, action[1]]
+        # 动作截断
+        a_in = [
+            # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
+            (action[0] + 2.5) / 2.0,
+            # 角速度为[-2.5, 2.5]，缩放到[-1, 1]
+            action[1] / 2.5,
+        ]
         
         # Execute one step
         latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(
