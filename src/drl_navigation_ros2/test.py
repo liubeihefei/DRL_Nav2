@@ -71,14 +71,14 @@ for i, scenario in enumerate(eval_scenarios):
         # 多帧历史处理
         action = model.get_action(history_state, False)
 
-        # a_in = [(action[0] + 1) / 2, action[1]]
-        # 动作截断
-        a_in = [
-            # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
-            (action[0] + 2.5) / 2.0,
-            # 角速度为[-2.5, 2.5]，缩放到[-1, 1]
-            action[1] / 2.5,
-        ]
+        a_in = [(action[0] + 1) / 2, action[1]]
+        # # 动作截断
+        # a_in = [
+        #     # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
+        #     (action[0] + 2.5) / 2.0,
+        #     # 角速度为[-2.5, 2.5]，缩放到[-1, 1]
+        #     action[1] / 2.5,
+        # ]
         
         # Execute one step
         latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(

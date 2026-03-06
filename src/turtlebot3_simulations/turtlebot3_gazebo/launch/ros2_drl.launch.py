@@ -22,7 +22,7 @@ def generate_launch_description():
     # )
     # 加载自定义世界文件
     world = os.path.join(
-        get_package_share_directory("turtlebot3_gazebo"), "worlds", "diy/last15.model"
+        get_package_share_directory("turtlebot3_gazebo"), "worlds", "diy/100by100.model"
     )
     
     # 获取launch文件目录，用来启动另一个launch文件
