@@ -21,7 +21,7 @@ def main(args=None):
     nr_eval_episodes = 20  # how many episodes to use to run evaluation
     max_epochs = 100  # max number of epochs
     epoch = 0  # starting epoch number
-    episodes_per_epoch = 70  # how many episodes to run in single epoch
+    episodes_per_epoch = 70  # 70, how many episodes to run in single epoch
     episode = 0  # starting episode number
     train_every_n = 2  # train and update network parameters every n episodes
     train_every_step = 2  # 每多少步更新一次参数
@@ -39,8 +39,8 @@ def main(args=None):
     best_success = 0.0  # 记录最好的测试成功率
     best_reward = 0.0  # 记录最好的测试奖励
     use_diy_world = True  # 是否使用自定义环境
-    diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/100by100.model"  # 自定义环境文件路径
-    obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/objects.json"  # 物体信息缓存路径
+    diy_world_path = "/home/root/rl/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/100by100.model"  # 自定义环境文件路径
+    obj_cache_path = "/home/root/rl/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/objects.json"  # 物体信息缓存路径
     world_size = 100.0   # 自定义环境大小，默认正方形
 
     model = SAC(
@@ -180,17 +180,30 @@ def main(args=None):
         ) % episodes_per_epoch == 0:  # if epoch is concluded, run evaluation
             episode = 0
             epoch += 1
-            best_success, best_reward = eval(
-                model=model,
-                env=ros,
-                scenarios=eval_scenarios,
-                epoch=epoch,
-                max_steps=max_steps,
-                state_dim=state_dim,
-                history_n=history_n,
-                best_success=best_success,
-                best_reward=best_reward
-            )  # run evaluation
+            if use_diy_world:
+                best_success, best_reward = eval_diy(
+                    model=model,
+                    env=ros,
+                    eval_cnt=nr_eval_episodes,
+                    epoch=epoch,
+                    max_steps=max_steps,
+                    state_dim=state_dim,
+                    history_n=history_n,
+                    best_success=best_success,
+                    best_reward=best_reward
+                )  # run evaluation
+            else:
+                best_success, best_reward = eval(
+                    model=model,
+                    env=ros,
+                    scenarios=eval_scenarios,
+                    epoch=epoch,
+                    max_steps=max_steps,
+                    state_dim=state_dim,
+                    history_n=history_n,
+                    best_success=best_success,
+                    best_reward=best_reward
+                )  # run evaluation
 
 
 def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_success, best_reward):
@@ -248,6 +261,90 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
     avg_reward /= len(scenarios)
     avg_col = col / len(scenarios)
     avg_goal = gl / len(scenarios)
+    print(f"Average Reward: {avg_reward}")
+    print(f"Average Collision rate: {avg_col}")
+    print(f"Average Goal rate: {avg_goal}")
+    print("..............................................")
+    model.writer.add_scalar("eval/avg_reward", avg_reward, epoch)
+    model.writer.add_scalar("eval/avg_col", avg_col, epoch)
+    model.writer.add_scalar("eval/avg_goal", avg_goal, epoch)
+
+    # 测试的单独保存
+    save_directory=Path("src/drl_navigation_ros2/models/BEST")
+    model_name="SAC"
+    # 若成功率大于记录，直接保存
+    if avg_goal > best_success:
+        model.save(model_name, save_directory)
+        best_reward = avg_reward
+        best_success = avg_goal
+    # 若成功率相等，则奖励大于记录时保存
+    elif avg_goal == best_success:
+        if avg_reward > best_reward:
+            model.save(model_name, save_directory)
+            best_reward = avg_reward
+            best_success = avg_goal
+    # 返回值
+    print(f"Best Success: {best_success}")
+    print(f"Best Reward: {best_reward}")
+    return best_success, best_reward
+
+
+def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_success, best_reward):
+    """Function to run evaluation"""
+    print("..............................................")
+    print(f"Epoch {epoch}. Evaluating {eval_cnt} times")
+    avg_reward = 0.0
+    col = 0
+    gl = 0
+    cnt = 1
+    while cnt <= eval_cnt:
+        count = 0
+        # 重置环境
+        latest_scan, distance, cos, sin, collision, goal, a, reward, vel = env.reset()
+
+        # 多帧时用第一帧进行扩展
+        state, _ = model.prepare_state(
+            latest_scan, distance, cos, sin, collision, goal, a, vel
+        )
+        history_state = np.concatenate([state] * history_n)
+
+        while count < max_steps:
+            last_distance = distance
+
+            state, terminal = model.prepare_state(
+                latest_scan, distance, cos, sin, collision, goal, a, vel
+            )
+            
+            history_state = np.concatenate([history_state[state_dim:], state])
+
+            if terminal:
+                cnt = cnt + 1
+                break
+
+            # 源代码单帧处理
+            # action = model.get_action(state, False)
+            # 多帧历史处理
+            action = model.get_action(history_state, False)
+
+            a_in = [(action[0] + 1) / 2, action[1]]
+            # # 动作截断
+            # a_in = [
+            #     # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
+            #     (action[0] + 2.5) / 2.0,
+            #     # 角速度为[-2.5, 2.5]，缩放到[-1, 1]
+            #     action[1] / 2.5,
+            # ]
+
+            latest_scan, distance, cos, sin, collision, goal, a, reward, vel = env.step(
+                lin_velocity=a_in[0], ang_velocity=a_in[1], last_distance=last_distance
+            )
+            avg_reward += reward
+            count += 1
+            col += collision
+            gl += goal
+    avg_reward /= eval_cnt
+    avg_col = col / eval_cnt
+    avg_goal = gl / eval_cnt
     print(f"Average Reward: {avg_reward}")
     print(f"Average Collision rate: {avg_col}")
     print(f"Average Goal rate: {avg_goal}")

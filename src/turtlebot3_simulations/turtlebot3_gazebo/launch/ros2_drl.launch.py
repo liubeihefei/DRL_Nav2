@@ -41,12 +41,12 @@ def generate_launch_description():
                 ),
                 launch_arguments={"world": world, "pause": pause}.items(),
             ),
-            # gazebo客户端，显示仿真环境，注释后不显示，可无头训练
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")
-                ),
-            ),
+            # # gazebo客户端，显示仿真环境，注释后不显示，可无头训练
+            # IncludeLaunchDescription(
+            #     PythonLaunchDescriptionSource(
+            #         os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")
+            #     ),
+            # ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     [launch_file_dir, "/robot_state_publisher.launch.py"]
