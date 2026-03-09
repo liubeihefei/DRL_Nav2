@@ -41,7 +41,7 @@ def main(args=None):
     use_diy_world = True  # 是否使用自定义环境
     diy_world_path = "/home/root/rl/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/100by100.model"  # 自定义环境文件路径
     obj_cache_path = "/home/root/rl/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/objects.json"  # 物体信息缓存路径
-    world_size = 100.0   # 自定义环境大小，默认正方形
+    world_size = 98.0   # 自定义环境大小，默认正方形
 
     model = SAC(
         state_dim=state_dim,
