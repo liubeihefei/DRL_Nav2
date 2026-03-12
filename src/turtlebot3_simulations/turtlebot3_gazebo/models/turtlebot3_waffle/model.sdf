@@ -134,7 +134,7 @@
         <visualize>true</visualize>
         <!-- <pose>-0.064 0 0.151 0 0 0</pose> -->
         <!-- 提高雷达高度 -->
-        <pose>-0.064 0 0.6 0 0 0</pose>
+        <pose>-0.064 0 0.4 0 0 0</pose>
         <update_rate>30</update_rate>
         <ray>
           <scan>

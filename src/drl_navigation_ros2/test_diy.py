@@ -12,11 +12,13 @@ max_action = 1
 max_steps = 300
 eval_cnt = 100
 history_n = 1
+init_target_distance = 8.0
 
 use_diy_world = True  # 是否使用自定义环境
-diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/100by100.model"  # 自定义环境文件路径
-obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/objects.json"  # 物体信息缓存路径
-world_size = 98.0   # 自定义环境大小，默认正方形
+diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.model"  # 自定义环境文件路径
+obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.json"  # 物体信息缓存路径
+world_size = 38.0   # 自定义环境大小，默认正方形
+min_pose_distance = 0.5  # 随机生成点到任何障碍物的最小距离
 
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -26,17 +28,18 @@ model = SAC(state_dim=state_dim, action_dim=action_dim, max_action=max_action,
            device=device, save_every=0, load_model=False, history_n=history_n)
 
 # Load weights
-model.actor.load_state_dict(torch.load('/home/horsefly/下载/BEST/SAC_actor.pth', map_location=device))
+model.actor.load_state_dict(torch.load('/home/horsefly/下载/distance/SAC_actor.pth', map_location=device))
 model.actor.eval()
 print("Model loaded successfully")
 
 # Initialize environment
 ros = ROS_env(
-    init_target_distance=8.0,
+    init_target_distance=init_target_distance,
     use_diy_world=use_diy_world,
     diy_world_path=diy_world_path,
     obj_cache_path=obj_cache_path,
-    world_size=world_size
+    world_size=world_size,
+    min_pose_distance=min_pose_distance
 )
 
 # Initialize statistics variables

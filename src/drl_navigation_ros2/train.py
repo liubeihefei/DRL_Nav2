@@ -39,9 +39,10 @@ def main(args=None):
     best_success = 0.0  # 记录最好的测试成功率
     best_reward = 0.0  # 记录最好的测试奖励
     use_diy_world = True  # 是否使用自定义环境
-    diy_world_path = "/home/root/rl/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/100by100.model"  # 自定义环境文件路径
-    obj_cache_path = "/home/root/rl/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/objects.json"  # 物体信息缓存路径
-    world_size = 98.0   # 自定义环境大小，默认正方形
+    diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.model"  # 自定义环境文件路径
+    obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.json"  # 物体信息缓存路径
+    world_size = 38.0   # 自定义环境大小，默认正方形
+    min_pose_distance = 0.5  # 随机生成点到任何障碍物的最小距离
 
     model = SAC(
         state_dim=state_dim,
@@ -57,7 +58,8 @@ def main(args=None):
         use_diy_world=use_diy_world,
         diy_world_path=diy_world_path,
         obj_cache_path=obj_cache_path,
-        world_size=world_size
+        world_size=world_size,
+        min_pose_distance=min_pose_distance
         )  # instantiate ROS environment
 
     eval_scenarios = record_eval_positions(

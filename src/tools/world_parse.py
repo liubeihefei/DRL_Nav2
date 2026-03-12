@@ -454,9 +454,13 @@ def plot_objects(objects: List[ObjectInfo], save_path: Optional[str] = None):
     # 创建图形
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     
+    # # 设置坐标轴范围
+    # ax.set_xlim(-50, 50)
+    # ax.set_ylim(-50, 50)
+
     # 设置坐标轴范围
-    ax.set_xlim(-50, 50)
-    ax.set_ylim(-50, 50)
+    ax.set_xlim(-20, 20)
+    ax.set_ylim(-20, 20)
     
     # 设置坐标轴标签
     ax.set_xlabel('X (meters)', fontsize=12)
@@ -562,7 +566,7 @@ def main():
     parser = WorldParser(gazebo_path)
     
     # 解析世界文件
-    world_file = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/100by100.model"
+    world_file = "/home/horsefly/下载/40by40.model"
     objects = parser.parse_world_file(world_file)
     
     # 保存到文件

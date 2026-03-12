@@ -34,6 +34,7 @@ class ROS_env:
         diy_world_path=None,        # 自定义环境文件路径
         obj_cache_path=None,        # 物体信息缓存路径
         world_size=100.0,           # 自定义环境大小，默认正方形，单位为米
+        min_pose_distance=1.8,      # 生成机器人和目标位置时与障碍物的最小距离
         args=None,
     ):
         rclpy.init(args=args)
@@ -42,6 +43,7 @@ class ROS_env:
         self.diy_world_path = diy_world_path
         self.obj_cache_path = obj_cache_path
         self.world_bounds = [-world_size / 2.0, world_size / 2.0]
+        self.min_pose_distance = min_pose_distance
 
         # 如果使用自定义环境，解析环境文件获取初始物体位置和外接框
         if self.use_diy_world:
@@ -141,10 +143,7 @@ class ROS_env:
         # 若使用自定义环境
         if self.use_diy_world:
             # 生成机器人和目标位置
-            robot_pos, target_pos = self.generate_robot_and_target(
-                robot_min_dist=1.8,       # 机器人到障碍物的最小距离
-                target_min_dist=1.8       # 目标到障碍物的最小距离
-            )
+            robot_pos, target_pos = self.generate_robot_and_target()
             
             # 设置机器人位置
             robot_angle = np.random.uniform(-np.pi, np.pi)
@@ -370,7 +369,7 @@ class ROS_env:
         return inside
 
     # 检查点是否与任何障碍物发生碰撞
-    def check_point_collision(self, point, min_dist):
+    def check_point_collision(self, point):
         for obj in self.objects:
             # 判断点是否在物体内部
             if self.point_in_polygon(point, obj.corners_2d):
@@ -378,28 +377,28 @@ class ROS_env:
 
             # 判断点是否离物体太近
             dist = self.point_to_polygon_distance(point, obj.corners_2d)
-            if dist < min_dist:
+            if dist < self.min_pose_distance:
                 return False  
         
         return True  # 点有效
     
     # 随机生成一个位置，确保与所有障碍物的距离大于阈值
-    def generate_random_position(self, min_dist):
+    def generate_random_position(self):
         while True:
             # 随机生成一个位置
             x = np.random.uniform(self.world_bounds[0], self.world_bounds[1])
             y = np.random.uniform(self.world_bounds[0], self.world_bounds[1])
             
             # 判断是否发生碰撞，包括在障碍物内部和距离障碍物太近两种情况
-            if self.check_point_collision((x, y), min_dist):
+            if self.check_point_collision((x, y)):
                 return (x, y)
     
     # 生成机器人位置，确保与所有障碍物的距离大于距离阈值
-    def generate_robot_position(self, min_dist):
-        return self.generate_random_position(min_dist)
+    def generate_robot_position(self):
+        return self.generate_random_position()
     
     # 生成目标位置，确保与机器人距离为目标距离，并且与所有障碍物的距离大于距离阈值
-    def generate_target_position(self, robot_position, min_dist):
+    def generate_target_position(self, robot_position):
         while True:
             # 计算目标位置
             x = np.clip(
@@ -414,16 +413,16 @@ class ROS_env:
             )
             
             # 检查目标位置是否有效
-            if self.check_point_collision((x, y), min_dist):
+            if self.check_point_collision((x, y)):
                 return (x, y)
     
     # 生成机器人和目标位置
-    def generate_robot_and_target(self, robot_min_dist, target_min_dist):
+    def generate_robot_and_target(self):
         # 先生成机器人位置
-        robot_pos = self.generate_robot_position(robot_min_dist)
+        robot_pos = self.generate_robot_position()
         
         # 然后生成目标位置
-        target_pos = self.generate_target_position(robot_pos, target_min_dist)
+        target_pos = self.generate_target_position(robot_pos)
         
         return robot_pos, target_pos
 
