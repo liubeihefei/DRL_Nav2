@@ -13,6 +13,7 @@ from ros_nodes import (
 import numpy as np
 from geometry_msgs.msg import Pose, Twist
 from squaternion import Quaternion
+import random
 
 # 添加环境解析工具
 import sys
