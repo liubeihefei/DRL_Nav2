@@ -134,7 +134,7 @@ def main(args=None):
         
         # 获取下一状态表示
         latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(
-            lin_velocity=a_in[0], ang_velocity=a_in[1], last_distance=last_distance
+            steps=steps, max_steps=max_steps, lin_velocity=a_in[0], ang_velocity=a_in[1], last_distance=last_distance
         )  # get data from the environment
         next_state, terminal = model.prepare_state(
             latest_scan, distance, cos, sin, collision, goal, a, vel

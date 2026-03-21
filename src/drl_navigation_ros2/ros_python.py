@@ -93,7 +93,7 @@ class ROS_env:
         self.target = self.set_target_position([0.0, 0.0])
 
     # 进行一个step（一步）
-    def step(self, lin_velocity=0.0, ang_velocity=0.1, last_distance=0.0):
+    def step(self, steps=-1, max_steps=300, lin_velocity=0.0, ang_velocity=0.1, last_distance=0.0):
         # 发布速度指令
         self.cmd_vel_publisher.publish_cmd_vel(lin_velocity, ang_velocity)
         # 启动世界
@@ -124,7 +124,7 @@ class ROS_env:
 
         # 计算奖励
         action = [lin_velocity, ang_velocity]
-        reward = self.get_reward(goal, collision, action, latest_scan, last_distance, distance)
+        reward = self.get_reward(steps, max_steps, goal, collision, action, latest_scan, last_distance, distance)
 
         # 返回所有状态所需的数据、是否碰撞、是否到达、奖励
         return latest_scan, distance, cos, sin, collision, goal, action, reward, latest_vel
@@ -427,17 +427,30 @@ class ROS_env:
         return robot_pos, target_pos
 
 
+    # @staticmethod
+    # def get_reward(goal, collision, action, laser_scan, last_distance, distance):
+    #     if goal:
+    #         return 100.0
+    #     elif collision:
+    #         # return -100.0
+    #         return -160.0
+    #     else:
+    #         r3 = lambda x: 1.35 - x if x < 1.35 else 0.0
+    #         return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2
+    #         # return last_distance - distance
+        
     @staticmethod
-    def get_reward(goal, collision, action, laser_scan, last_distance, distance):
+    def get_reward(steps, max_steps, goal, collision, action, laser_scan, last_distance, distance):
         if goal:
-            return 100.0
+            return 10.0
         elif collision:
-            # return -100.0
-            return -160.0
+            return -10.0
         else:
-            r3 = lambda x: 1.35 - x if x < 1.35 else 0.0
-            return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2
-            # return last_distance - distance
+            if (steps > max_steps - max_steps / 30.0) or (random.random() < 0.1):
+                r_task = 1.0 / ( 1.0 + abs(distance / 4.0))
+                return r_task
+            else:
+                return 0.0
 
     @staticmethod
     def cossin(vec1, vec2):
