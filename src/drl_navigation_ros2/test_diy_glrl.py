@@ -24,6 +24,10 @@ robot_radius = 0.4   # ⭐ 建议比真实稍大
 waypoint_dist = 2.0
 init_target_distance = 8.0
 
+model_path = '/home/horsefly/下载/323/SAC_actor.pth'
+diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.model"
+obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.json"
+
 # ===============================
 # 🧠 A*（基于polygon occupancy）
 # ===============================
@@ -283,15 +287,15 @@ model = SAC(state_dim=state_dim, action_dim=action_dim, max_action=max_action,
            device=device, save_every=0, load_model=False, history_n=history_n)
 
 # Load weights
-model.actor.load_state_dict(torch.load('/home/horsefly/下载/323/SAC_actor.pth', map_location=device))
+model.actor.load_state_dict(torch.load(model_path, map_location=device))
 model.actor.eval()
 print("Model loaded successfully")
 
 ros = ROS_env(
     init_target_distance=init_target_distance,
     use_diy_world=True,
-    diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.model",
-    obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.json",
+    diy_world_path=diy_world_path,
+    obj_cache_path=obj_cache_path,
     world_size=38.0,
     min_pose_distance=0.5
 )
