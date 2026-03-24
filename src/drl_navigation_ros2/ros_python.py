@@ -442,16 +442,40 @@ class ROS_env:
         
     @staticmethod
     def get_reward(steps, max_steps, goal, collision, action, laser_scan, last_distance, distance):
+        # 参数
+        sigma_soft = 2.0
+        sigma_tight = 0.5
+        delta_check = 0.1
+        Tr_steps = max_steps / 30.0
+
+        # -------- collision --------
+        if collision:
+            return -100.0
+
+        # -------- 到达后的“补偿窗口” --------
         if goal:
-            return 10.0
-        elif collision:
-            return -10.0
-        else:
-            if (steps > max_steps - max_steps / 30.0) or (random.random() < 0.1):
-                r_task = 1.0 / ( 1.0 + abs(distance / 4.0))
-                return r_task
-            else:
-                return 0.0
+            # 剩余步数
+            remaining = max_steps - steps
+
+            # 实际能拿到的窗口长度
+            dur = min(Tr_steps, remaining)
+
+            r_track = (
+                1.0 / (1.0 + abs(distance / sigma_soft)) +
+                1.0 / (1.0 + abs(distance / sigma_tight))
+            )
+
+            return r_track * dur
+
+        # -------- 正常阶段 --------
+        if (steps > max_steps - Tr_steps) or (random.random() < delta_check):
+            r_track = (
+                1.0 / (1.0 + abs(distance / sigma_soft)) +
+                1.0 / (1.0 + abs(distance / sigma_tight))
+            )
+            return r_track
+
+        return 0.0
 
     @staticmethod
     def cossin(vec1, vec2):
