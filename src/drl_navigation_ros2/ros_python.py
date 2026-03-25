@@ -453,8 +453,8 @@ class ROS_env:
     #         return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2
     #         # return last_distance - distance
         
-    @staticmethod
-    def get_reward(steps, max_steps, goal, collision, action, laser_scan, last_distance, distance):
+    # @staticmethod
+    def get_reward(self, steps, max_steps, goal, collision, action, laser_scan, last_distance, distance):
         # 参数
         sigma_soft = 2.0
         sigma_tight = 0.5
