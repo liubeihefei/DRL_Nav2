@@ -93,8 +93,17 @@ class ROS_env:
         # 记录目标点的坐标
         self.target = self.set_target_position([0.0, 0.0])
 
+        # 记录动量线速度、角速度
+        self.momentum_lin = 0.0
+        self.momentum_ang = 0.0
+
     # 进行一个step（一步）
     def step(self, steps=-1, max_steps=300, lin_velocity=0.0, ang_velocity=0.1, last_distance=0.0):
+        # 若steps为0，则用此时的线速度角速度初始化动量线速度、角速度
+        if steps == 0:
+            self.momentum_lin = lin_velocity
+            self.momentum_ang = ang_velocity
+
         # 发布速度指令
         self.cmd_vel_publisher.publish_cmd_vel(lin_velocity, ang_velocity)
         # 启动世界
@@ -132,6 +141,10 @@ class ROS_env:
 
     # 重置环境
     def reset(self):
+        # 重置动量线速度、角速度
+        self.momentum_lin = 0.0
+        self.momentum_ang = 0.0
+
         if not self.use_diy_world:
             # 重置世界，此时机器人仅是位置复原，可能还有速度
             self.world_reset.reset_world()
@@ -447,6 +460,14 @@ class ROS_env:
         sigma_tight = 0.5
         delta_check = 0.1
         Tr_steps = max_steps / 30.0
+        momentum_lambda = 0.8
+        momentum_beta = -0.02
+
+        # 在这里更新动量线速度、角速度，方便计算震荡惩罚
+        if steps > 0:
+            self.momentum_lin = momentum_lambda * self.momentum_lin + (1 - momentum_lambda) * action[0]
+            self.momentum_ang = momentum_lambda * self.momentum_ang + (1 - momentum_lambda) * action[1]
+        momentum_penalty = abs(action[0] - self.momentum_lin) * momentum_beta + abs(action[1] - self.momentum_ang) * momentum_beta
 
         # -------- collision --------
         if collision:
@@ -473,9 +494,9 @@ class ROS_env:
                 1.0 / (1.0 + abs(distance / sigma_soft)) +
                 1.0 / (1.0 + abs(distance / sigma_tight))
             )
-            return r_track
+            return r_track + momentum_penalty
 
-        return 0.0
+        return 0.0 + momentum_penalty
 
     @staticmethod
     def cossin(vec1, vec2):
