@@ -44,6 +44,9 @@ def main(args=None):
     world_size = 38.0   # 自定义环境大小，默认正方形
     min_pose_distance = 0.5  # 随机生成点到任何障碍物的最小距离
 
+    add_lidar_noise = False  # 是否在激光雷达数据中添加噪声
+    lidar_noise_max = 0.3  # 激光雷达数据中添加的最大噪声值，单位为米
+
     model = SAC(
         state_dim=state_dim,
         action_dim=action_dim,
@@ -100,7 +103,7 @@ def main(args=None):
 
         # 对当前环境进行状态表示
         state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel
+            latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=add_lidar_noise, lidar_noise_max=lidar_noise_max
         )  # get state a state representation from returned data from the environment
 
         # 多帧时用第一帧进行扩展
@@ -116,7 +119,7 @@ def main(args=None):
         # print("--------------------------------\n")
 
         # 获取动作
-        action = model.get_action(history_state, True)  # get an action from the model
+        action = model.get_action(history_state, False)  # get an action from the model
 
         # 动作截断
         a_in = [
@@ -137,7 +140,7 @@ def main(args=None):
             steps=steps, max_steps=max_steps, lin_velocity=a_in[0], ang_velocity=a_in[1], last_distance=last_distance
         )  # get data from the environment
         next_state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel
+            latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=add_lidar_noise, lidar_noise_max=lidar_noise_max
         )  # get a next state representation
 
         # 未来用历史进一帧，出一帧
@@ -223,7 +226,7 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
 
         # 多帧时用第一帧进行扩展
         state, _ = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel
+            latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=False, lidar_noise_max=0.0
         )
         history_state = np.concatenate([state] * history_n)
 
@@ -231,7 +234,7 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
             last_distance = distance
 
             state, terminal = model.prepare_state(
-                latest_scan, distance, cos, sin, collision, goal, a, vel
+                latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=False, lidar_noise_max=0.0
             )
             
             history_state = np.concatenate([history_state[state_dim:], state])
@@ -306,7 +309,7 @@ def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_
 
         # 多帧时用第一帧进行扩展
         state, _ = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel
+            latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=False, lidar_noise_max=0.0
         )
         history_state = np.concatenate([state] * history_n)
 
@@ -314,7 +317,7 @@ def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_
             last_distance = distance
 
             state, terminal = model.prepare_state(
-                latest_scan, distance, cos, sin, collision, goal, a, vel
+                latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=False, lidar_noise_max=0.0
             )
             
             history_state = np.concatenate([history_state[state_dim:], state])

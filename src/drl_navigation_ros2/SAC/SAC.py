@@ -258,7 +258,7 @@ class SAC(object):
         if step % self.critic_target_update_frequency == 0:
             utils.soft_update_params(self.critic, self.critic_target, self.critic_tau)
 
-    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel):
+    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel, add_lidar_noise=False, lidar_noise_max=0.3):
         # update the returned data from ROS into a form used for learning in the current model
         latest_scan = np.array(latest_scan)
 
@@ -280,6 +280,20 @@ class SAC(object):
             bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
             # Find the minimum value in the current bin and append it to the min_values list
             min_values.append(min(bin))
+
+        # 给雷达数据加入噪声
+        if add_lidar_noise:
+            min_values = np.array(min_values)
+
+            # 均匀分布噪声 [-noise_max, noise_max]
+            noise = np.random.uniform(-lidar_noise_max, lidar_noise_max, size=min_values.shape)
+
+            min_values = min_values + noise
+
+            # ❗裁剪，避免出现负距离或超出最大雷达范围
+            min_values = np.clip(min_values, 0.0, 7.0)
+
+            min_values = min_values.tolist()
 
         # 不带当前速度
         state = min_values + [distance, cos, sin] + [action[0], action[1]]
