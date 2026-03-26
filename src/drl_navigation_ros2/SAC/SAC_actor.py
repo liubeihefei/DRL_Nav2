@@ -6,6 +6,29 @@ from torch import distributions as pyd
 
 import SAC.SAC_utils as utils
 
+from torch.distributions import Transform, constraints
+
+
+# 缩放和平移变换
+class AffineTransform(Transform):
+    domain = constraints.real
+    codomain = constraints.real
+    bijective = True
+
+    def __init__(self, scale, loc=0.0):
+        super().__init__()
+        self.scale = scale
+        self.loc = loc
+
+    def _call(self, x):
+        return x * self.scale + self.loc
+
+    def _inverse(self, y):
+        return (y - self.loc) / self.scale
+
+    def log_abs_det_jacobian(self, x, y):
+        return torch.log(torch.abs(self.scale)).sum(-1, keepdim=True)
+
 
 class TanhTransform(pyd.transforms.Transform):
     domain = pyd.constraints.real
@@ -36,35 +59,6 @@ class TanhTransform(pyd.transforms.Transform):
         # https://github.com/tensorflow/probability/commit/ef6bb176e0ebd1cf6e25c6b5cecdd2428c22963f#diff-e120f70e92e6741bca649f04fcd907b7
         return 2.0 * (math.log(2.0) - x - F.softplus(-2.0 * x))
 
-# # 修改后的TanhTransform，输出范围为[-2.5, 2.5]
-# class TanhTransform(pyd.transforms.Transform):
-#     domain = pyd.constraints.real
-#     # 修改输出范围
-#     codomain = pyd.constraints.interval(-2.5, 2.5)  # 改为[-2.5, 2.5]
-#     bijective = True
-#     sign = +1
-
-#     def __init__(self, cache_size=1):
-#         super().__init__(cache_size=cache_size)
-
-#     @staticmethod
-#     def atanh(x):
-#         return 0.5 * (x.log1p() - (-x).log1p())
-
-#     def _call(self, x):
-#         # 将tanh输出从[-1,1]映射到[-2.5,2.5]
-#         return 2.5 * x.tanh()
-
-#     def _inverse(self, y):
-#         # 逆变换，先将y除以2.5，再计算atanh
-#         return self.atanh(y / 2.5)
-
-#     def log_abs_det_jacobian(self, x, y):
-#         # 调整雅可比行列式
-#         # dy/dx = 2.5 * (1 - tanh²(x)) = 2.5 * (1 - (y/2.5)²)
-#         # 取对数并化简
-#         return math.log(2.5) + 2.0 * (math.log(2.0) - x - F.softplus(-2.0 * x))
-
 
 class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
     def __init__(self, loc, scale):
@@ -73,6 +67,11 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
 
         self.base_dist = pyd.Normal(loc, scale)
         transforms = [TanhTransform()]
+
+        # 线速度和角速度缩放及平移设置，默认不缩放和平移
+        action_scale = torch.tensor([1.0, 1.0], device=loc.device)
+        transforms.append(AffineTransform(scale=action_scale))
+
         super().__init__(self.base_dist, transforms)
 
     @property
