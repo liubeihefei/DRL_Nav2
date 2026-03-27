@@ -9,6 +9,8 @@ import numpy as np
 from utils import record_eval_positions
 from pretrain_utils import Pretraining
 
+from collections import deque
+
 
 def main(args=None):
     """Main training function"""
@@ -46,6 +48,8 @@ def main(args=None):
 
     add_lidar_noise = False  # 是否在激光雷达数据中添加噪声
     lidar_noise_max = 0.3  # 激光雷达数据中添加的最大噪声值，单位为米
+
+    delay_n = 5 # 感知延迟的步数
 
     model = SAC(
         state_dim=state_dim,
@@ -91,9 +95,15 @@ def main(args=None):
             buffer_size=5e3, random_seed=42
         )  # if not experiences are loaded, instantiate an empty buffer
 
+    # 用于输入延迟的缓冲区，存储最近delay_n步和当前步的雷达数据
+    scan_buffer = deque(maxlen=delay_n + 1)
+
     latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(
         lin_velocity=0.0, ang_velocity=0.0
     )  # get the initial step state
+
+    # 将初始雷达数据添加到缓冲区
+    scan_buffer.append(latest_scan)  
 
     # 每个episode是否刚开始收集的标志位，用于重置历史帧
     epi_end_flag = True
@@ -101,9 +111,17 @@ def main(args=None):
     while epoch < max_epochs:  # train until max_epochs is reached
         last_distance = distance
 
+        # 从当前雷达数据和历史雷达数据中抽取一个进行训练，模拟感知延迟
+        delay_idx = np.random.randint(len(scan_buffer))
+        delayed_scan = scan_buffer[delay_idx]
+        # 丢掉被选中帧之前的所有数据，保证transition不会错位，只模拟随机延迟
+        # 同时不丢选中帧是模拟传感器卡住，完全可能出现多次收到同样感知数据的情况
+        for _ in range(delay_idx):
+            scan_buffer.popleft()
+
         # 对当前环境进行状态表示
         state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=add_lidar_noise, lidar_noise_max=lidar_noise_max
+            delayed_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=add_lidar_noise, lidar_noise_max=lidar_noise_max
         )  # get state a state representation from returned data from the environment
 
         # 多帧时用第一帧进行扩展
@@ -139,6 +157,10 @@ def main(args=None):
         latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(
             steps=steps, max_steps=max_steps, lin_velocity=a_in[0], ang_velocity=a_in[1], last_distance=last_distance
         )  # get data from the environment
+
+        # 将最新的雷达数据添加到缓冲区
+        scan_buffer.append(latest_scan)
+
         next_state, terminal = model.prepare_state(
             latest_scan, distance, cos, sin, collision, goal, a, vel, add_lidar_noise=add_lidar_noise, lidar_noise_max=lidar_noise_max
         )  # get a next state representation
@@ -166,6 +188,10 @@ def main(args=None):
             terminal or steps == max_steps
         ):  # reset environment of terminal stat ereached, or max_steps were taken
             latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.reset()
+            # 重置环境时清空雷达数据缓冲区
+            scan_buffer.clear()
+            # 将初始雷达数据添加到缓冲区
+            scan_buffer.append(latest_scan)  
             episode += 1
             # 收集结束，下个epoch需要进行扩展
             epi_end_flag = True
