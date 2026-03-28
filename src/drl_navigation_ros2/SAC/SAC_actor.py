@@ -6,28 +6,7 @@ from torch import distributions as pyd
 
 import SAC.SAC_utils as utils
 
-from torch.distributions import Transform, constraints
-
-
-# 缩放和平移变换
-class AffineTransform(Transform):
-    domain = constraints.real
-    codomain = constraints.real
-    bijective = True
-
-    def __init__(self, scale, loc=0.0):
-        super().__init__()
-        self.scale = scale
-        self.loc = loc
-
-    def _call(self, x):
-        return x * self.scale + self.loc
-
-    def _inverse(self, y):
-        return (y - self.loc) / self.scale
-
-    def log_abs_det_jacobian(self, x, y):
-        return torch.log(torch.abs(self.scale)).sum(-1, keepdim=True)
+from torch.distributions.transforms import AffineTransform
 
 
 class TanhTransform(pyd.transforms.Transform):
@@ -69,8 +48,8 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
         transforms = [TanhTransform()]
 
         # 线速度和角速度缩放及平移设置，默认不缩放和平移
-        action_scale = torch.tensor([1.0, 1.0], device=loc.device)
-        transforms.append(AffineTransform(scale=action_scale))
+        action_scale = torch.tensor([1.0, 0.5], device=loc.device).view(1, -1)
+        transforms.append(AffineTransform(loc=0.0, scale=action_scale))
 
         super().__init__(self.base_dist, transforms)
 
