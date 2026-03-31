@@ -51,7 +51,9 @@ def main(args=None):
 
     delay_n = 5 # 感知延迟的步数
 
-    action_scale = torch.tensor([1.0, 0.5], device=device).view(1, -1)  # 动作缩放设置
+    # 动作缩放参数：将 [-1, 1] 映射到环境期望范围
+    linear_vel_scale = 1.0   # 线速度缩放到 [0, 0.5] m/s
+    angular_vel_scale = 0.5  # 角速度缩放到 [-0.5, 0.5] rad/s
 
     model = SAC(
         state_dim=state_dim,
@@ -60,8 +62,7 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=False,
-        history_n=history_n,
-        action_scale=action_scale
+        history_n=history_n
     )  # instantiate a model
 
     ros = ROS_env(
@@ -142,11 +143,11 @@ def main(args=None):
         # 获取动作
         action = model.get_action(history_state, False)  # get an action from the model
 
-        # 动作截断
+        # 动作缩放：将 [-1, 1] 映射到环境范围
         a_in = [
-            (action[0] + 1) / 2,
-            action[1],
-        ]  # clip linear velocity to [0, 0.5] m/s range
+            ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度: [0, 0.5]
+            action[1] * angular_vel_scale,            # 角速度: [-0.5, 0.5]
+        ]
 
         # # 动作截断
         # a_in = [
@@ -224,7 +225,9 @@ def main(args=None):
                     state_dim=state_dim,
                     history_n=history_n,
                     best_success=best_success,
-                    best_reward=best_reward
+                    best_reward=best_reward,
+                    linear_vel_scale=linear_vel_scale,
+                    angular_vel_scale=angular_vel_scale
                 )  # run evaluation
             else:
                 best_success, best_reward = eval(
@@ -236,11 +239,13 @@ def main(args=None):
                     state_dim=state_dim,
                     history_n=history_n,
                     best_success=best_success,
-                    best_reward=best_reward
+                    best_reward=best_reward,
+                    linear_vel_scale=linear_vel_scale,
+                    angular_vel_scale=angular_vel_scale
                 )  # run evaluation
 
 
-def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_success, best_reward):
+def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_success, best_reward, linear_vel_scale, angular_vel_scale):
     """Function to run evaluation"""
     print("..............................................")
     print(f"Epoch {epoch}. Evaluating {len(scenarios)} scenarios")
@@ -276,14 +281,10 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
             # 多帧历史处理
             action = model.get_action(history_state, False)
 
-            a_in = [(action[0] + 1) / 2, action[1]]
-            # # 动作截断
-            # a_in = [
-            #     # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
-            #     (action[0] + 2.5) / 2.0,
-            #     # 角速度为[-2.5, 2.5]，缩放到[-1, 1]
-            #     action[1] / 2.5,
-            # ]
+            a_in = [
+                ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度: [0, 0.5]
+                action[1] * angular_vel_scale,            # 角速度: [-0.5, 0.5]
+            ]
 
             latest_scan, distance, cos, sin, collision, goal, a, reward, vel = env.step(
                 lin_velocity=a_in[0], ang_velocity=a_in[1], last_distance=last_distance
@@ -323,7 +324,7 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
     return best_success, best_reward
 
 
-def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_success, best_reward):
+def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_success, best_reward, linear_vel_scale, angular_vel_scale):
     """Function to run evaluation"""
     print("..............................................")
     print(f"Epoch {epoch}. Evaluating {eval_cnt} times")
@@ -360,9 +361,10 @@ def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_
             # 多帧历史处理
             action = model.get_action(history_state, False)
 
-            a_in = [(action[0] + 1) / 2, action[1]]
-            # # 动作截断
-            # a_in = [
+            a_in = [
+                ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度: [0, 0.5]
+                action[1] * angular_vel_scale,            # 角速度: [-0.5, 0.5]
+            ]
             #     # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
             #     (action[0] + 2.5) / 2.0,
             #     # 角速度为[-2.5, 2.5]，缩放到[-1, 1]

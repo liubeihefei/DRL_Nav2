@@ -20,7 +20,6 @@ class SAC(object):
         device,
         max_action,
         history_n,
-        action_scale,
         discount=0.99,
         init_temperature=0.1,
         alpha_lr=1e-4,
@@ -56,7 +55,6 @@ class SAC(object):
         self.save_directory = save_directory
         self.log_dist_and_hist = log_dist_and_hist
         self.history_n = history_n
-        self.action_scale = action_scale
 
         self.train_metrics_dict = { "train_critic/loss_av": [],
                                     "train_actor/loss_av": [],
@@ -172,12 +170,8 @@ class SAC(object):
         obs = obs.unsqueeze(0)
         dist = self.actor(obs)
         action = dist.sample() if sample else dist.mean
-
-        # 对动作进行缩放
-        action = action * self.action_scale
-
-        # # 在返回动作之前已经clip过一次
-        # action = action.clamp(*self.action_range)
+        # 在返回动作之前已经clip过一次
+        action = action.clamp(*self.action_range)
         assert action.ndim == 2 and action.shape[0] == 1
         return utils.to_np(action[0])
 
@@ -185,10 +179,6 @@ class SAC(object):
         dist = self.actor(next_obs)
         next_action = dist.rsample()
         log_prob = dist.log_prob(next_action).sum(-1, keepdim=True)
-
-        # 对动作进行缩放
-        next_action = next_action * self.action_scale
-
         target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
         target_V = torch.min(target_Q1, target_Q2) - self.alpha.detach() * log_prob
         target_Q = reward + ((1 - done) * self.discount * target_V)
@@ -213,10 +203,6 @@ class SAC(object):
         dist = self.actor(obs)
         action = dist.rsample()
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
-
-        # 对动作进行缩放
-        action = action * self.action_scale
-
         actor_Q1, actor_Q2 = self.critic(obs, action)
 
         actor_Q = torch.min(actor_Q1, actor_Q2)
