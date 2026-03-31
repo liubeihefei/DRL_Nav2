@@ -51,6 +51,8 @@ def main(args=None):
 
     delay_n = 5 # 感知延迟的步数
 
+    action_scale = torch.tensor([1.0, 0.5], device=device).view(1, -1)  # 动作缩放设置
+
     model = SAC(
         state_dim=state_dim,
         action_dim=action_dim,
@@ -58,7 +60,8 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=False,
-        history_n=history_n
+        history_n=history_n,
+        action_scale=action_scale
     )  # instantiate a model
 
     ros = ROS_env(

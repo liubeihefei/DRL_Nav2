@@ -6,8 +6,6 @@ from torch import distributions as pyd
 
 import SAC.SAC_utils as utils
 
-from torch.distributions.transforms import AffineTransform
-
 
 class TanhTransform(pyd.transforms.Transform):
     domain = pyd.constraints.real
@@ -46,10 +44,6 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
 
         self.base_dist = pyd.Normal(loc, scale)
         transforms = [TanhTransform()]
-
-        # 线速度和角速度缩放及平移设置，默认不缩放和平移
-        action_scale = torch.tensor([1.0, 0.5], device=loc.device).view(1, -1)
-        transforms.append(AffineTransform(loc=0.0, scale=action_scale))
 
         super().__init__(self.base_dist, transforms)
 
