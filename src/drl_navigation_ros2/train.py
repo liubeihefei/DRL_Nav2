@@ -40,7 +40,7 @@ def main(args=None):
     history_n = 1  # 使用多少帧历史状态，包含当前
     best_success = 0.0  # 记录最好的测试成功率
     best_reward = 0.0  # 记录最好的测试奖励
-    use_diy_world = True  # 是否使用自定义环境
+    use_diy_world = False  # 是否使用自定义环境
     diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.model"  # 自定义环境文件路径
     obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.json"  # 物体信息缓存路径
     world_size = 38.0   # 自定义环境大小，默认正方形
@@ -49,7 +49,7 @@ def main(args=None):
     add_lidar_noise = False  # 是否在激光雷达数据中添加噪声
     lidar_noise_max = 0.3  # 激光雷达数据中添加的最大噪声值，单位为米
 
-    delay_n = 5 # 感知延迟的步数
+    delay_n = 0 # 感知延迟的步数
 
     # 动作缩放参数：将 [-1, 1] 映射到环境期望范围
     linear_vel_scale = 1.0   # 线速度缩放到 [0, 0.5] m/s

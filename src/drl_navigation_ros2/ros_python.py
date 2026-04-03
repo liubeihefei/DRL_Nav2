@@ -478,15 +478,12 @@ class ROS_env:
             # 剩余步数
             remaining = max_steps - steps
 
-            # 实际能拿到的窗口长度
-            dur = min(Tr_steps, remaining)
-
             r_track = (
                 1.0 / (1.0 + abs(distance / sigma_soft)) +
                 1.0 / (1.0 + abs(distance / sigma_tight))
             )
 
-            return r_track * dur
+            return r_track * remaining
 
         # -------- 正常阶段 --------
         if (steps > max_steps - Tr_steps) or (random.random() < delta_check):

@@ -265,6 +265,14 @@ class SAC(object):
         inf_mask = np.isinf(latest_scan)
         latest_scan[inf_mask] = 7.0
 
+        # 给原始雷达数据加入噪声（在降采样/取最小值之前）
+        if add_lidar_noise:
+            # 均匀分布噪声 [-noise_max, noise_max]
+            noise = np.random.uniform(-lidar_noise_max, lidar_noise_max, size=latest_scan.shape)
+            latest_scan = latest_scan + noise
+            # 裁剪，避免出现负距离或超出最大雷达范围
+            latest_scan = np.clip(latest_scan, 0.0, 7.0)
+
         # 不带速度，源码
         max_bins = self.state_dim - 5
         # 带速度
@@ -280,20 +288,6 @@ class SAC(object):
             bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
             # Find the minimum value in the current bin and append it to the min_values list
             min_values.append(min(bin))
-
-        # 给雷达数据加入噪声
-        if add_lidar_noise:
-            min_values = np.array(min_values)
-
-            # 均匀分布噪声 [-noise_max, noise_max]
-            noise = np.random.uniform(-lidar_noise_max, lidar_noise_max, size=min_values.shape)
-
-            min_values = min_values + noise
-
-            # ❗裁剪，避免出现负距离或超出最大雷达范围
-            min_values = np.clip(min_values, 0.0, 7.0)
-
-            min_values = min_values.tolist()
 
         # 不带当前速度
         state = min_values + [distance, cos, sin] + [action[0], action[1]]
