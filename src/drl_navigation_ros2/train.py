@@ -52,8 +52,8 @@ def main(args=None):
     delay_n = 0 # 感知延迟的步数
 
     # 动作缩放参数：将 [-1, 1] 映射到环境期望范围
-    linear_vel_scale = 1.0   # 线速度缩放到 [0, 0.5] m/s
-    angular_vel_scale = 0.5  # 角速度缩放到 [-0.5, 0.5] rad/s
+    linear_vel_scale = 1.0   # 线速度缩放参数
+    angular_vel_scale = 0.5  # 角速度缩放参数
 
     model = SAC(
         state_dim=state_dim,
@@ -145,8 +145,8 @@ def main(args=None):
 
         # 动作缩放：将 [-1, 1] 映射到环境范围
         a_in = [
-            ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度: [0, 0.5]
-            action[1] * angular_vel_scale,            # 角速度: [-0.5, 0.5]
+            ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度缩放
+            action[1] * angular_vel_scale,            # 角速度缩放
         ]
 
         # # 动作截断
@@ -282,8 +282,8 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
             action = model.get_action(history_state, False)
 
             a_in = [
-                ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度: [0, 0.5]
-                action[1] * angular_vel_scale,            # 角速度: [-0.5, 0.5]
+                ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度缩放
+                action[1] * angular_vel_scale,            # 角速度缩放
             ]
 
             latest_scan, distance, cos, sin, collision, goal, a, reward, vel = env.step(
@@ -362,8 +362,8 @@ def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_
             action = model.get_action(history_state, False)
 
             a_in = [
-                ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度: [0, 0.5]
-                action[1] * angular_vel_scale,            # 角速度: [-0.5, 0.5]
+                ((action[0] + 1) / 2) * linear_vel_scale,  # 线速度缩放
+                action[1] * angular_vel_scale,            # 角速度缩放
             ]
             #     # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
             #     (action[0] + 2.5) / 2.0,

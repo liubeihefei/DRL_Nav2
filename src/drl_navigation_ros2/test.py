@@ -8,7 +8,7 @@ import time
 # Configuration parameters
 state_dim = 25
 action_dim = 2
-max_action = 2.5
+max_action = 1.0
 max_steps = 300
 scenarios_nums = 1000
 history_n = 1
