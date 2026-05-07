@@ -65,9 +65,12 @@ SWEEP_MODE   = False                          # True 时进行多角度扫描并
 ANGLE_LIST   = [0, 30, 60, 90, 120, 150, 180] # 扫描的夹角列表(度)
 
 # ---------- 输出 ----------
-PLOT_PATH    = "angle_vs_path.png"   # 角度-平均路径长度关系图保存路径
+PLOT_PATH    = "angle_vs_path.png"   # 综合图(顶部 path length + 下方各角度轨迹)
 CSV_PATH     = "angle_vs_path.csv"   # 每次测试一行的原始结果 CSV
 JSON_PATH    = ""                    # 汇总结果 JSON; 空字符串表示不保存
+
+# 轨迹图布局: 每行最多放几个子图
+TRAJ_MAX_COLS = 4
 
 # ============================================================
 
@@ -139,20 +142,32 @@ def custom_reset(ros, target_distance, initial_angle_deg):
 # ============================================================
 def run_one_episode(ros, model, initial_angle_deg, ep_tag=""):
     """
-    返回 dict: { angle_deg, success, collision, timeout, path_length, steps, time }
+    返回 dict: { angle_deg, success, collision, timeout, path_length,
+                 steps, time, trajectory }
+    trajectory 为 [(x, y), ...] 列表(机器人逐步的 odom 位置)。
+
+    注意: 路径长度 = Σ ||p_t - p_{t-1}|| (分段折线长度), 是真实曲线长度的下界
+    估计(弦 <= 弧). 由于到达判定阈值是 TARGET_REACHED_DELTA(默认 0.5m), 即
+    distance < TARGET_REACHED_DELTA 就算成功, 所以即使完全沿直线冲向目标,
+    实际也只走了 TARGET_DISTANCE - TARGET_REACHED_DELTA, 这是直线情形下
+    "理论最短路径长度", 不是 TARGET_DISTANCE.
     """
     t0 = time.time()
     latest_scan, distance, cos, sin, collision, goal, a, reward, vel = custom_reset(
         ros, TARGET_DISTANCE, initial_angle_deg
     )
 
-    # 初始化路径长度统计
+    # 初始化路径长度 + 轨迹统计
+    # 多 spin 几次, 让 odom 跟上 set_position 之后的瞬移
+    for _ in range(3):
+        rclpy.spin_once(ros.sensor_subscriber, timeout_sec=0.05)
     pos = ros.sensor_subscriber.latest_position
     if pos is None:
         last_xy = (0.0, 0.0)
     else:
         last_xy = (pos.x, pos.y)
     path_length = 0.0
+    trajectory = [last_xy]
 
     # history_state 初始化(模仿其它 test 脚本)
     state, _ = model.prepare_state(latest_scan, distance, cos, sin,
@@ -183,7 +198,7 @@ def run_one_episode(ros, model, initial_angle_deg, ep_tag=""):
             lin_velocity=a_in[0], ang_velocity=a_in[1]
         )
 
-        # 增量累积路径长度
+        # 增量累积路径长度 + 记录轨迹点
         pos = ros.sensor_subscriber.latest_position
         if pos is not None:
             cur_xy = (pos.x, pos.y)
@@ -191,6 +206,7 @@ def run_one_episode(ros, model, initial_angle_deg, ep_tag=""):
                                cur_xy[1] - last_xy[1])
             path_length += d_seg
             last_xy = cur_xy
+            trajectory.append(cur_xy)
 
         if goal:
             success = True
@@ -216,44 +232,153 @@ def run_one_episode(ros, model, initial_angle_deg, ep_tag=""):
         "path_length": float(path_length),
         "steps": int(steps_taken),
         "time_sec": float(elapsed),
+        "trajectory": trajectory,   # [(x, y), ...]
     }
 
 
 # ============================================================
 # 绘图
 # ============================================================
-def plot_angle_vs_path(angle_list, avg_path_lengths, success_rates,
-                       target_distance, runs_per_angle, out_path):
-    fig, axes = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
+def plot_combined(angle_list, avg_path_lengths, results_per_angle,
+                  target_distance, target_reached_delta,
+                  runs_per_angle, out_path,
+                  traj_max_cols=TRAJ_MAX_COLS):
+    """
+    一张图里上下两块:
+      * 顶部一行: 平均路径长度 vs 初始夹角
+      * 下方网格: 每个角度一个子图, 画出该角度下所有 run 的轨迹
+                  (起点 + 终点圆 + 折线连接的轨迹点)
+    """
+    n_angles = len(angle_list)
+    n_cols = max(1, min(traj_max_cols, n_angles))
+    n_rows = (n_angles + n_cols - 1) // n_cols
 
-    # 上图: 平均路径长度
-    ax = axes[0]
-    ax.plot(angle_list, avg_path_lengths, marker="o", color="steelblue",
-            label="Avg path length (success only)")
-    ax.axhline(target_distance, ls="--", color="gray",
-               label=f"Straight-line distance ({target_distance} m)")
-    ax.set_ylabel("Average path length (m)")
-    ax.set_title(
+    # 顶部 path length 给 4 个单位高度, 每行轨迹给 3.4 单位高度
+    fig_h = 4.0 + 3.4 * n_rows
+    fig_w = max(8.0, 3.2 * n_cols)
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    gs = fig.add_gridspec(
+        1 + n_rows, n_cols,
+        height_ratios=[4.0] + [3.4] * n_rows,
+        hspace=0.45, wspace=0.3,
+    )
+
+    # ---------- 顶部: 平均路径长度 ----------
+    ax_path = fig.add_subplot(gs[0, :])
+    ax_path.plot(angle_list, avg_path_lengths, marker="o",
+                 color="steelblue", linewidth=1.5,
+                 label="Avg path length (success only)")
+    ax_path.axhline(target_distance, ls="--", color="gray",
+                    label=f"Straight-line distance ({target_distance} m)")
+    min_eff = target_distance - target_reached_delta
+    ax_path.axhline(min_eff, ls=":", color="orange",
+                    label=f"Theoretical min path "
+                          f"(distance - reach_delta = {min_eff:.2f} m)")
+    ax_path.set_xlabel("Initial heading angle (deg)")
+    ax_path.set_ylabel("Average path length (m)")
+    ax_path.set_title(
         f"Avg path length vs initial heading angle\n"
         f"target_distance = {target_distance} m, "
+        f"reach_delta = {target_reached_delta} m, "
         f"runs per angle = {runs_per_angle}"
     )
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax_path.grid(True, alpha=0.3)
+    ax_path.legend(loc="best", fontsize=9)
 
-    # 下图: 成功率
-    ax = axes[1]
-    ax.bar(angle_list, success_rates,
-           width=max(2.0, (max(angle_list) - min(angle_list))
-                     / max(1, len(angle_list)) * 0.6),
-           color="seagreen", alpha=0.8)
-    ax.set_xlabel("Initial heading angle (deg)")
-    ax.set_ylabel("Success rate (%)")
-    ax.set_ylim(0, 105)
-    ax.grid(True, axis="y", alpha=0.3)
+    # ---------- 下方: 每个角度一个轨迹子图 ----------
+    # 计算所有轨迹的全局边界, 让子图统一坐标范围
+    all_xs, all_ys = [0.0, target_distance], [0.0]
+    for runs in results_per_angle:
+        for r in runs:
+            for (x, y) in r["trajectory"]:
+                all_xs.append(x)
+                all_ys.append(y)
+    pad = max(0.5, 0.1 * target_distance)
+    x_min, x_max = min(all_xs) - pad, max(all_xs) + pad
+    y_min, y_max = min(all_ys) - pad, max(all_ys) + pad
+    # 让 x/y 同等比例视觉范围, 不强制 equal
+    span = max(x_max - x_min, y_max - y_min)
+    cx, cy = (x_min + x_max) / 2.0, (y_min + y_max) / 2.0
+    x_min, x_max = cx - span / 2.0, cx + span / 2.0
+    y_min, y_max = cy - span / 2.0, cy + span / 2.0
 
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
+    cmap = plt.get_cmap("tab10")
+
+    for idx, angle in enumerate(angle_list):
+        row = 1 + idx // n_cols
+        col = idx % n_cols
+        ax = fig.add_subplot(gs[row, col])
+
+        runs = results_per_angle[idx]
+        for run_idx, r in enumerate(runs):
+            traj = r["trajectory"]
+            if len(traj) == 0:
+                continue
+            xs = [p[0] for p in traj]
+            ys = [p[1] for p in traj]
+            color = cmap(run_idx % 10)
+            # 细线连接 + 小点
+            ax.plot(xs, ys, "-", color=color, linewidth=0.8, alpha=0.85)
+            ax.plot(xs, ys, ".", color=color, markersize=2.5, alpha=0.9)
+            # 终点用空心圈标一下, 区分成功/失败
+            end_marker = "o" if r["success"] else ("x" if r["collision"] else "s")
+            ax.plot(xs[-1], ys[-1], end_marker, color=color,
+                    markersize=6, markerfacecolor="none", markeredgewidth=1.2)
+
+        # 起点
+        ax.plot(0.0, 0.0, marker="P", color="green",
+                markersize=10, label="start" if idx == 0 else None)
+        # 目标点
+        ax.plot(target_distance, 0.0, marker="*", color="red",
+                markersize=12, label="goal" if idx == 0 else None)
+        # 到达判定圈
+        circle = plt.Circle((target_distance, 0.0), target_reached_delta,
+                            fill=False, ls="--", color="red", linewidth=0.8,
+                            alpha=0.6)
+        ax.add_patch(circle)
+
+        # 画一条 start -> goal 的灰色参考线
+        ax.plot([0.0, target_distance], [0.0, 0.0],
+                ls=":", color="gray", linewidth=0.7, alpha=0.6)
+
+        # 用一个箭头标出初始朝向
+        arr_len = max(0.3, 0.15 * target_distance)
+        ang_rad = math.radians(angle)
+        ax.annotate(
+            "", xy=(arr_len * math.cos(ang_rad), arr_len * math.sin(ang_rad)),
+            xytext=(0.0, 0.0),
+            arrowprops=dict(arrowstyle="->", color="green", lw=1.4),
+        )
+
+        ax.set_title(f"angle = {angle:g}°  (n={len(runs)})", fontsize=10)
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.3)
+        if col == 0:
+            ax.set_ylabel("y (m)")
+        if row == n_rows:  # 最底下一行
+            ax.set_xlabel("x (m)")
+
+    # 全局图例放在第一个轨迹子图里就够用了, 这里再加个总图例
+    handles = [
+        plt.Line2D([0], [0], marker="P", color="green", linestyle="None",
+                   markersize=8, label="start (0, 0)"),
+        plt.Line2D([0], [0], marker="*", color="red", linestyle="None",
+                   markersize=10, label=f"goal ({target_distance}, 0)"),
+        plt.Line2D([0], [0], marker="o", color="black", linestyle="None",
+                   markerfacecolor="none", markersize=7, label="end: success"),
+        plt.Line2D([0], [0], marker="x", color="black", linestyle="None",
+                   markersize=7, label="end: collision"),
+        plt.Line2D([0], [0], marker="s", color="black", linestyle="None",
+                   markerfacecolor="none", markersize=7, label="end: timeout"),
+    ]
+    fig.legend(handles=handles, loc="lower center",
+               ncol=len(handles), fontsize=9, frameon=False,
+               bbox_to_anchor=(0.5, -0.005))
+
+    fig.suptitle("", y=0.995)
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"\n[Plot] saved to {out_path}")
 
@@ -264,6 +389,7 @@ def plot_angle_vs_path(angle_list, avg_path_lengths, success_rates,
 def save_csv(rows, csv_path):
     if not csv_path:
         return
+    # trajectory 不写进 CSV(可能很长), 想看就用 JSON
     header = ["angle_deg", "run_idx", "success", "collision", "timeout",
               "path_length", "steps", "time_sec"]
     with open(csv_path, "w", encoding="utf-8") as f:
@@ -325,10 +451,10 @@ def main():
     ros.physics_client.pause_physics()
 
     # ---------- 跑测试 ----------
-    all_rows = []                                # 每次测试一行
-    summary_per_angle = []                       # 每个角度一项
+    all_rows = []                                # 每次测试一行(用于 CSV)
+    summary_per_angle = []                       # 每个角度一项汇总
     avg_path_per_angle = []
-    success_rate_per_angle = []
+    results_per_angle = []                       # 每个角度的完整 results(含 trajectory, 用于轨迹绘图)
 
     print(f"\nStart sweeping {len(angle_list)} angle(s), "
           f"{RUNS_PER_ANGLE} run(s) each, "
@@ -343,6 +469,8 @@ def main():
             res["run_idx"] = run_idx
             all_rows.append(res)
             per_angle_results.append(res)
+
+        results_per_angle.append(per_angle_results)
 
         # ---- 该角度的统计 ----
         n_total = len(per_angle_results)
@@ -362,7 +490,6 @@ def main():
                                       for r in per_angle_results]))
 
         avg_path_per_angle.append(avg_path)
-        success_rate_per_angle.append(success_rate)
 
         summary_per_angle.append({
             "angle_deg": float(angle),
@@ -392,7 +519,18 @@ def main():
               f"{s['avg_path_length_all']:>15.3f}")
 
     # ---------- 保存 CSV / JSON ----------
+    # CSV 不写 trajectory; JSON 里写一份精简版(每段轨迹保留 (x, y) list)
     save_csv(all_rows, CSV_PATH)
+
+    json_results = []
+    for runs in results_per_angle:
+        for r in runs:
+            json_results.append({
+                **{k: v for k, v in r.items() if k != "trajectory"},
+                "trajectory": [[round(x, 4), round(y, 4)]
+                               for (x, y) in r["trajectory"]],
+            })
+
     save_json({
         "config": {
             "MODEL_PATH": MODEL_PATH,
@@ -412,18 +550,22 @@ def main():
         },
         "angle_list": angle_list,
         "summary_per_angle": summary_per_angle,
+        "raw_results": json_results,
     }, JSON_PATH)
 
-    # ---------- 出图 (sweep 模式且至少 2 个角度才有意义) ----------
-    if SWEEP_MODE and len(angle_list) >= 2:
-        plot_angle_vs_path(
-            angle_list=angle_list,
-            avg_path_lengths=avg_path_per_angle,
-            success_rates=success_rate_per_angle,
-            target_distance=TARGET_DISTANCE,
-            runs_per_angle=RUNS_PER_ANGLE,
-            out_path=PLOT_PATH,
-        )
+    # ---------- 出图 ----------
+    # 顶部: path length vs angle (sweep 时才有意义), 下方: 每个角度的轨迹.
+    # 单角度模式也仍然画一张轨迹图(顶部 path length 退化成单点).
+    plot_combined(
+        angle_list=angle_list,
+        avg_path_lengths=avg_path_per_angle,
+        results_per_angle=results_per_angle,
+        target_distance=TARGET_DISTANCE,
+        target_reached_delta=TARGET_REACHED_DELTA,
+        runs_per_angle=RUNS_PER_ANGLE,
+        out_path=PLOT_PATH,
+        traj_max_cols=TRAJ_MAX_COLS,
+    )
 
     # ---------- 收尾 ----------
     try:
