@@ -169,6 +169,9 @@ def run_one_episode(ros, model, initial_angle_deg, ep_tag=""):
     path_length = 0.0
     trajectory = [last_xy]
 
+    # 每个 step 的指令角速度 (策略实际下发的 a_in[1], 单位 rad/s)
+    ang_vel_cmd = []
+
     # history_state 初始化(模仿其它 test 脚本)
     state, _ = model.prepare_state(latest_scan, distance, cos, sin,
                                    collision, goal, a, vel)
@@ -193,6 +196,9 @@ def run_one_episode(ros, model, initial_angle_deg, ep_tag=""):
 
         action = model.get_action(history_state, False)
         a_in = [(action[0] + 1) / 2, action[1]]
+
+        # 记录本 step 实际下发的角速度
+        ang_vel_cmd.append(float(a_in[1]))
 
         latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(
             lin_velocity=a_in[0], ang_velocity=a_in[1]
@@ -232,7 +238,8 @@ def run_one_episode(ros, model, initial_angle_deg, ep_tag=""):
         "path_length": float(path_length),
         "steps": int(steps_taken),
         "time_sec": float(elapsed),
-        "trajectory": trajectory,   # [(x, y), ...]
+        "trajectory": trajectory,        # [(x, y), ...]
+        "ang_vel_cmd": ang_vel_cmd,      # 每 step 的指令角速度 (rad/s)
     }
 
 
@@ -253,14 +260,21 @@ def plot_combined(angle_list, avg_path_lengths, results_per_angle,
     n_cols = max(1, min(traj_max_cols, n_angles))
     n_rows = (n_angles + n_cols - 1) // n_cols
 
-    # 顶部 path length 给 4 个单位高度, 每行轨迹给 3.4 单位高度
-    fig_h = 4.0 + 3.4 * n_rows
+    # 网格布局:
+    #   row 0:                 顶部 path length(全宽)
+    #   每个 "block" 占两行:   上 = 轨迹 (3.4), 下 = 角速度曲线 (1.8)
+    # 共 n_rows 个 block ⇒ 总行数 = 1 + 2*n_rows
+    height_ratios = [4.0]
+    for _ in range(n_rows):
+        height_ratios.append(3.4)   # 轨迹
+        height_ratios.append(1.8)   # 角速度
+    fig_h = sum(height_ratios) + 1.0
     fig_w = max(8.0, 3.2 * n_cols)
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = fig.add_gridspec(
-        1 + n_rows, n_cols,
-        height_ratios=[4.0] + [3.4] * n_rows,
-        hspace=0.45, wspace=0.3,
+        1 + 2 * n_rows, n_cols,
+        height_ratios=height_ratios,
+        hspace=0.55, wspace=0.3,
     )
 
     # ---------- 顶部: 平均路径长度 ----------
@@ -304,10 +318,25 @@ def plot_combined(angle_list, avg_path_lengths, results_per_angle,
 
     cmap = plt.get_cmap("tab10")
 
+    # 计算所有 ang_vel 的全局 y 范围, 让所有角速度子图统一比例
+    all_av = []
+    for runs in results_per_angle:
+        for r in runs:
+            all_av.extend(r.get("ang_vel_cmd", []))
+    if len(all_av) > 0:
+        av_max = max(abs(min(all_av)), abs(max(all_av)))
+    else:
+        av_max = 1.0
+    av_max = max(av_max, 0.1) * 1.1   # 留点余量, 避免顶到边
+
     for idx, angle in enumerate(angle_list):
-        row = 1 + idx // n_cols
+        block_row = idx // n_cols
         col = idx % n_cols
-        ax = fig.add_subplot(gs[row, col])
+        traj_row = 1 + 2 * block_row     # 轨迹行
+        av_row   = 2 + 2 * block_row     # 角速度行
+
+        # ---------- 轨迹子图 ----------
+        ax = fig.add_subplot(gs[traj_row, col])
 
         runs = results_per_angle[idx]
         for run_idx, r in enumerate(runs):
@@ -357,8 +386,43 @@ def plot_combined(angle_list, avg_path_lengths, results_per_angle,
         ax.grid(True, alpha=0.3)
         if col == 0:
             ax.set_ylabel("y (m)")
-        if row == n_rows:  # 最底下一行
-            ax.set_xlabel("x (m)")
+        # 轨迹子图的 x 标签由下方的角速度子图代替, 这里不画 xlabel
+
+        # ---------- 角速度子图 (放在该角度轨迹的正下方) ----------
+        ax_av = fig.add_subplot(gs[av_row, col])
+        for run_idx, r in enumerate(runs):
+            av = r.get("ang_vel_cmd", [])
+            if len(av) == 0:
+                continue
+            color = cmap(run_idx % 10)
+            steps = np.arange(1, len(av) + 1)
+            ax_av.plot(steps, av, "-", color=color, linewidth=0.9, alpha=0.85)
+            ax_av.plot(steps, av, ".", color=color, markersize=1.5, alpha=0.7)
+
+        # 0 参考线 + ±0.3 红色虚线参考(用于观察转弯幅度)
+        ax_av.axhline(0.0, color="gray", linewidth=0.6, alpha=0.6)
+        ax_av.axhline(0.3, color="red", linewidth=0.8,
+                      linestyle="--", alpha=0.7)
+        ax_av.axhline(-0.3, color="red", linewidth=0.8,
+                      linestyle="--", alpha=0.7)
+
+        ax_av.set_ylim(-av_max, av_max)
+        ax_av.grid(True, alpha=0.3)
+
+        # 显式设定刻度: 让 ±0.3 一定有刻度, 同时保留 0 和上下界
+        yticks = sorted({-round(av_max, 2), -0.3, 0.0, 0.3, round(av_max, 2)})
+        ax_av.set_yticks(yticks)
+        ax_av.set_yticklabels([f"{v:g}" for v in yticks])
+
+        # 强制在每一个角速度子图上都显示 y 轴刻度数值(不只是最左一列)
+        ax_av.tick_params(axis="y", labelleft=True, labelsize=9)
+        ax_av.tick_params(axis="x", labelsize=9)
+
+        if col == 0:
+            ax_av.set_ylabel("ang vel (rad/s)", fontsize=9)
+        # 最底下一行 (block_row == n_rows-1) 才画 step 轴标签
+        if block_row == n_rows - 1:
+            ax_av.set_xlabel("step", fontsize=9)
 
     # 全局图例放在第一个轨迹子图里就够用了, 这里再加个总图例
     handles = [
@@ -526,9 +590,11 @@ def main():
     for runs in results_per_angle:
         for r in runs:
             json_results.append({
-                **{k: v for k, v in r.items() if k != "trajectory"},
+                **{k: v for k, v in r.items()
+                   if k not in ("trajectory", "ang_vel_cmd")},
                 "trajectory": [[round(x, 4), round(y, 4)]
                                for (x, y) in r["trajectory"]],
+                "ang_vel_cmd": [round(v, 4) for v in r.get("ang_vel_cmd", [])],
             })
 
     save_json({
