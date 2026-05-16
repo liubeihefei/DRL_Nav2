@@ -45,6 +45,9 @@ def main(args=None):
     obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.json"  # 物体信息缓存路径
     world_size = 38.0   # 自定义环境大小，默认正方形
     min_pose_distance = 0.5  # 随机生成点到任何障碍物的最小距离
+    target_reached_delta = 0.5       # 到达目标的距离阈值（初始值）
+    target_reached_delta_min = 0.1   # 到达目标的距离阈值下限
+    target_reached_delta_decrease = 0.001  # 每次到达目标后距离阈值减小的值
 
     add_lidar_noise = False  # 是否在激光雷达数据中添加噪声
     lidar_noise_max = 0.3  # 激光雷达数据中添加的最大噪声值，单位为米
@@ -70,7 +73,10 @@ def main(args=None):
         diy_world_path=diy_world_path,
         obj_cache_path=obj_cache_path,
         world_size=world_size,
-        min_pose_distance=min_pose_distance
+        min_pose_distance=min_pose_distance,
+        target_reached_delta=target_reached_delta,
+        target_reached_delta_min=target_reached_delta_min,
+        target_reached_delta_decrease=target_reached_delta_decrease,
         )  # instantiate ROS environment
 
     eval_scenarios = record_eval_positions(
