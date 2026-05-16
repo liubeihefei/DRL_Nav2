@@ -29,7 +29,9 @@ class ROS_env:
         init_target_distance=2.0,   # 初始目标距离
         target_dist_increase=0.001, # 每次达到目标后目标距离增加的值
         max_target_dist=8.0,        # 目标距离的最大值
-        target_reached_delta=0.5,   # 到达目标的距离阈值
+        target_reached_delta=0.5,   # 到达目标的距离阈值（初始值）
+        target_reached_delta_min=0.1,   # 到达目标的距离阈值下限
+        target_reached_delta_decrease=0.0,  # 每次到达目标后距离阈值减小的值
         collision_delta=0.4,        # 发生碰撞的距离阈值
         use_diy_world=False,        # 是否使用自定义环境
         diy_world_path=None,        # 自定义环境文件路径
@@ -83,11 +85,13 @@ class ROS_env:
         # 传感器数据订阅者，同时订阅雷达和定位数据
         self.sensor_subscriber = SensorSubscriber()
 
-        # 记录初始目标距离、目标距离增加值、最大目标距离、到达目标的距离阈值、碰撞的距离阈值
+        # 记录初始目标距离、目标距离增加值、最大目标距离、到达目标的距离阈值（及其下限和每次减小值）、碰撞的距离阈值
         self.target_dist = init_target_distance
         self.target_dist_increase = target_dist_increase
         self.max_target_dist = max_target_dist
         self.target_reached_delta = target_reached_delta
+        self.target_reached_delta_min = target_reached_delta_min
+        self.target_reached_delta_decrease = target_reached_delta_decrease
         self.collision_delta = collision_delta
 
         # 记录目标点的坐标
@@ -297,6 +301,9 @@ class ROS_env:
             self.target_dist += self.target_dist_increase
             if self.target_dist > self.max_target_dist:
                 self.target_dist = self.max_target_dist
+            self.target_reached_delta -= self.target_reached_delta_decrease
+            if self.target_reached_delta < self.target_reached_delta_min:
+                self.target_reached_delta = self.target_reached_delta_min
             return True
         return False
 

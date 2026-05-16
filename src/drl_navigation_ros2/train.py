@@ -299,10 +299,12 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
     print(f"Average Reward: {avg_reward}")
     print(f"Average Collision rate: {avg_col}")
     print(f"Average Goal rate: {avg_goal}")
+    print(f"Current Goal Threshold: {env.target_reached_delta:.3f}m")
     print("..............................................")
     model.writer.add_scalar("eval/avg_reward", avg_reward, epoch)
     model.writer.add_scalar("eval/avg_col", avg_col, epoch)
     model.writer.add_scalar("eval/avg_goal", avg_goal, epoch)
+    model.writer.add_scalar("eval/goal_threshold", env.target_reached_delta, epoch)
 
     # 测试的单独保存
     save_directory=Path("src/drl_navigation_ros2/models/BEST")
@@ -384,10 +386,12 @@ def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_
     print(f"Average Reward: {avg_reward}")
     print(f"Average Collision rate: {avg_col}")
     print(f"Average Goal rate: {avg_goal}")
+    print(f"Current Goal Threshold: {env.target_reached_delta:.3f}m")
     print("..............................................")
     model.writer.add_scalar("eval/avg_reward", avg_reward, epoch)
     model.writer.add_scalar("eval/avg_col", avg_col, epoch)
     model.writer.add_scalar("eval/avg_goal", avg_goal, epoch)
+    model.writer.add_scalar("eval/goal_threshold", env.target_reached_delta, epoch)
 
     # 测试的单独保存
     save_directory=Path("src/drl_navigation_ros2/models/BEST")
