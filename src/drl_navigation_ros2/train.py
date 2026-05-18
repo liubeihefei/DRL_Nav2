@@ -48,6 +48,7 @@ def main(args=None):
     target_reached_delta = 0.5       # 到达目标的距离阈值（初始值）
     target_reached_delta_min = 0.1   # 到达目标的距离阈值下限
     target_reached_delta_decrease = 0.001  # 每次到达目标后距离阈值减小的值
+    potential_lambda = 1.0           # 朝向势能权重（等权：最大距离变化量=最大朝向误差变化量=0.1）
 
     add_lidar_noise = False  # 是否在激光雷达数据中添加噪声
     lidar_noise_max = 0.3  # 激光雷达数据中添加的最大噪声值，单位为米
@@ -77,6 +78,7 @@ def main(args=None):
         target_reached_delta=target_reached_delta,
         target_reached_delta_min=target_reached_delta_min,
         target_reached_delta_decrease=target_reached_delta_decrease,
+        potential_lambda=potential_lambda,
         )  # instantiate ROS environment
 
     eval_scenarios = record_eval_positions(

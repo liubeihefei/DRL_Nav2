@@ -33,6 +33,7 @@ class ROS_env:
         target_reached_delta_min=0.1,   # 到达目标的距离阈值下限
         target_reached_delta_decrease=0.0,  # 每次到达目标后距离阈值减小的值
         collision_delta=0.4,        # 发生碰撞的距离阈值
+        potential_lambda=1.0,       # 朝向势能权重（等权：最大距离变化量=最大朝向误差变化量=0.1）
         use_diy_world=False,        # 是否使用自定义环境
         diy_world_path=None,        # 自定义环境文件路径
         obj_cache_path=None,        # 物体信息缓存路径
@@ -97,6 +98,10 @@ class ROS_env:
         # 记录目标点的坐标
         self.target = self.set_target_position([0.0, 0.0])
 
+        # 朝向势能权重、上一步朝向误差（用于势能塑形奖励）
+        self.potential_lambda = potential_lambda
+        self.prev_theta_error = 0.0
+
         # 记录动量线速度、角速度
         self.momentum_lin = 0.0
         self.momentum_ang = 0.0
@@ -138,7 +143,7 @@ class ROS_env:
 
         # 计算奖励
         action = [lin_velocity, ang_velocity]
-        reward = self.get_reward(steps, max_steps, goal, collision, action, latest_scan, last_distance, distance)
+        reward = self.get_reward(steps, max_steps, goal, collision, action, latest_scan, last_distance, distance, cos)
 
         # 返回所有状态所需的数据、是否碰撞、是否到达、奖励
         return latest_scan, distance, cos, sin, collision, goal, action, reward, latest_vel
@@ -148,6 +153,8 @@ class ROS_env:
         # 重置动量线速度、角速度
         self.momentum_lin = 0.0
         self.momentum_ang = 0.0
+        # 重置朝向误差记录
+        self.prev_theta_error = 0.0
 
         if not self.use_diy_world:
             # 重置世界，此时机器人仅是位置复原，可能还有速度
@@ -461,7 +468,7 @@ class ROS_env:
     #         # return last_distance - distance
         
     # @staticmethod
-    def get_reward(self, steps, max_steps, goal, collision, action, laser_scan, last_distance, distance):
+    def get_reward(self, steps, max_steps, goal, collision, action, laser_scan, last_distance, distance, cos):
         # 参数
         sigma_soft = 2.0
         sigma_tight = 0.5
@@ -476,11 +483,22 @@ class ROS_env:
             self.momentum_ang = momentum_lambda * self.momentum_ang + (1 - momentum_lambda) * action[1]
         momentum_penalty = abs(action[0] - self.momentum_lin) * momentum_beta + abs(action[1] - self.momentum_ang) * momentum_beta
 
+        # -------- 势能塑形奖励 --------
+        # F = γ·Φ(s') - Φ(s)，Φ(s) = -(distance + λ·|θ_error|)
+        # 近似展开后：F ≈ (d_prev - d) + λ·(|θ_prev| - |θ_cur|)
+        # 让原地转向（减小θ_error）也能获得正奖励
+        theta_error = np.arccos(np.clip(cos, -1.0, 1.0))
+        if steps > 0:
+            F = self.potential_lambda * (self.prev_theta_error - theta_error)
+        else:
+            F = 0.0
+        self.prev_theta_error = theta_error
+
         # -------- collision --------
         if collision:
-            return -100.0
+            return -100.0 + F
 
-        # -------- 到达后的“补偿窗口” --------
+        # -------- 到达后的”补偿窗口” --------
         if goal:
             # 剩余步数
             remaining = max_steps - steps
@@ -490,7 +508,7 @@ class ROS_env:
                 1.0 / (1.0 + abs(distance / sigma_tight))
             )
 
-            return r_track * remaining
+            return r_track * remaining + F
 
         # -------- 正常阶段 --------
         if (steps > max_steps - Tr_steps) or (random.random() < delta_check):
@@ -498,9 +516,9 @@ class ROS_env:
                 1.0 / (1.0 + abs(distance / sigma_soft)) +
                 1.0 / (1.0 + abs(distance / sigma_tight))
             )
-            return r_track + momentum_penalty
+            return r_track + momentum_penalty + F
 
-        return 0.0 + momentum_penalty
+        return 0.0 + momentum_penalty + F
 
     @staticmethod
     def cossin(vec1, vec2):
