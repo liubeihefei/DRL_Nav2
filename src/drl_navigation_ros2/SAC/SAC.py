@@ -258,7 +258,7 @@ class SAC(object):
         if step % self.critic_target_update_frequency == 0:
             utils.soft_update_params(self.critic, self.critic_target, self.critic_tau)
 
-    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel, add_lidar_noise=False, lidar_noise_max=0.3):
+    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel, pose=(0.0, 0.0, 0.0), add_lidar_noise=False, lidar_noise_max=0.3):
         # update the returned data from ROS into a form used for learning in the current model
         latest_scan = np.array(latest_scan)
 
@@ -273,10 +273,10 @@ class SAC(object):
             # 裁剪，避免出现负距离或超出最大雷达范围
             latest_scan = np.clip(latest_scan, 0.0, 7.0)
 
-        # 不带速度，源码
-        max_bins = self.state_dim - 5
-        # 带速度
-        # max_bins = self.state_dim - 7
+        # 不带速度：distance, cos, sin, action[0], action[1], x, y, yaw = 8 维
+        max_bins = self.state_dim - 8
+        # 带速度（+vel[0], vel[1]）：
+        # max_bins = self.state_dim - 10
         bin_size = int(np.ceil(len(latest_scan) / max_bins))
 
         # Initialize the list to store the minimum values of each bin
@@ -289,10 +289,10 @@ class SAC(object):
             # Find the minimum value in the current bin and append it to the min_values list
             min_values.append(min(bin))
 
-        # 不带当前速度
-        state = min_values + [distance, cos, sin] + [action[0], action[1]]
-        # 带当前速度
-        # state = min_values + [distance, cos, sin] + [action[0], action[1]] + vel
+        # 不带当前速度，带世界坐标系位姿
+        state = min_values + [distance, cos, sin] + [action[0], action[1]] + list(pose)
+        # 带当前速度，带世界坐标系位姿
+        # state = min_values + [distance, cos, sin] + [action[0], action[1]] + vel + list(pose)
 
         assert len(state) == self.state_dim
         terminal = 1 if collision or goal else 0

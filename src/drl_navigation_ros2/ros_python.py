@@ -133,9 +133,10 @@ class ROS_env:
         ) = self.sensor_subscriber.get_latest_sensor()
 
         # 获得到目标的距离和朝向
-        distance, cos, sin, _ = self.get_dist_sincos(
+        distance, cos, sin, angle, odom_x, odom_y = self.get_dist_sincos(
             latest_position, latest_orientation
         )
+        pose = (odom_x, odom_y, angle)
 
         # 判断是否发生碰撞和是否到达目标
         collision = self.check_collision(latest_scan)
@@ -145,8 +146,8 @@ class ROS_env:
         action = [lin_velocity, ang_velocity]
         reward = self.get_reward(steps, max_steps, goal, collision, action, latest_scan, last_distance, distance, cos)
 
-        # 返回所有状态所需的数据、是否碰撞、是否到达、奖励
-        return latest_scan, distance, cos, sin, collision, goal, action, reward, latest_vel
+        # 返回所有状态所需的数据、是否碰撞、是否到达、奖励、世界坐标系位姿
+        return latest_scan, distance, cos, sin, collision, goal, action, reward, latest_vel, pose
 
     # 重置环境
     def reset(self):
@@ -192,10 +193,10 @@ class ROS_env:
         self.publish_target.publish(self.target[0], self.target[1])
         
         # 重置完先0速进行一个step以获取初始环境信息
-        latest_scan, distance, cos, sin, _, _, action, reward, vel = self.step(
+        latest_scan, distance, cos, sin, _, _, action, reward, vel, pose = self.step(
             lin_velocity=action[0], ang_velocity=action[1]
         )
-        return latest_scan, distance, cos, sin, False, False, action, reward, vel
+        return latest_scan, distance, cos, sin, False, False, action, reward, vel, pose
 
     # 设置评估环境
     def eval(self, scenario):
@@ -211,10 +212,10 @@ class ROS_env:
         # 开局静止一秒钟让物体位置稳定，然后获取初始环境信息
         self.physics_client.unpause_physics()
         time.sleep(1)
-        latest_scan, distance, cos, sin, _, _, a, reward, vel = self.step(
+        latest_scan, distance, cos, sin, _, _, a, reward, vel, pose = self.step(
             lin_velocity=0.0, ang_velocity=0.0
         )
-        return latest_scan, distance, cos, sin, False, False, a, reward, vel
+        return latest_scan, distance, cos, sin, False, False, a, reward, vel, pose
 
 
     # 设置物体位置，最后发布
@@ -332,7 +333,7 @@ class ROS_env:
         distance = np.linalg.norm(goal_vector)
         cos, sin = self.cossin(pose_vector, goal_vector)
 
-        return distance, cos, sin, angle
+        return distance, cos, sin, angle, odom_x, odom_y
 
 
     # 计算点到线段的最小距离
