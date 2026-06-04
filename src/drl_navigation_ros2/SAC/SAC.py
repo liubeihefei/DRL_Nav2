@@ -38,6 +38,8 @@ class SAC(object):
         save_directory=Path("src/drl_navigation_ros2/models/SAC"),
         model_name="SAC",
         load_directory=Path("src/drl_navigation_ros2/models/SAC"),
+        pose_encoding_freqs=(1.0, 2.0, 4.0, 8.0),
+        pose_xy_scale=10.0,
     ):
         super().__init__()
 
@@ -55,6 +57,9 @@ class SAC(object):
         self.save_directory = save_directory
         self.log_dist_and_hist = log_dist_and_hist
         self.history_n = history_n
+        self.pose_encoding_freqs = np.array(pose_encoding_freqs, dtype=np.float32)
+        self.pose_xy_scale = float(pose_xy_scale)
+        self.pose_encoding_dim = len(self.pose_encoding_freqs) * 6
 
         self.train_metrics_dict = { "train_critic/loss_av": [],
                                     "train_actor/loss_av": [],
@@ -258,6 +263,26 @@ class SAC(object):
         if step % self.critic_target_update_frequency == 0:
             utils.soft_update_params(self.critic, self.critic_target, self.critic_tau)
 
+    def encode_pose(self, pose):
+        x, y, yaw = pose
+        x_norm = np.clip(float(x) / self.pose_xy_scale, -1.0, 1.0)
+        y_norm = np.clip(float(y) / self.pose_xy_scale, -1.0, 1.0)
+        yaw = float(yaw)
+
+        encoded_pose = []
+        for freq in self.pose_encoding_freqs:
+            encoded_pose.extend(
+                [
+                    np.sin(np.pi * freq * x_norm),
+                    np.cos(np.pi * freq * x_norm),
+                    np.sin(np.pi * freq * y_norm),
+                    np.cos(np.pi * freq * y_norm),
+                    np.sin(freq * yaw),
+                    np.cos(freq * yaw),
+                ]
+            )
+        return encoded_pose
+
     def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel, pose=(0.0, 0.0, 0.0), add_lidar_noise=False, lidar_noise_max=0.3):
         # update the returned data from ROS into a form used for learning in the current model
         latest_scan = np.array(latest_scan)
@@ -274,7 +299,15 @@ class SAC(object):
             latest_scan = np.clip(latest_scan, 0.0, 7.0)
 
         # 不带速度：distance, cos, sin, action[0], action[1], x, y, yaw = 8 维
-        max_bins = self.state_dim - 8
+        pose_features = self.encode_pose(pose)
+
+        # distance, cos, sin, action[0], action[1], encoded pose
+        max_bins = self.state_dim - 5 - self.pose_encoding_dim
+        if max_bins <= 0:
+            raise ValueError(
+                f"state_dim={self.state_dim} is too small for "
+                f"pose_encoding_dim={self.pose_encoding_dim}"
+            )
         # 带速度（+vel[0], vel[1]）：
         # max_bins = self.state_dim - 10
         bin_size = int(np.ceil(len(latest_scan) / max_bins))
@@ -290,11 +323,14 @@ class SAC(object):
             min_values.append(min(bin))
 
         # 不带当前速度，带世界坐标系位姿
-        state = min_values + [distance, cos, sin] + [action[0], action[1]] + list(pose)
+        state = min_values + [distance, cos, sin] + [action[0], action[1]] + pose_features
         # 带当前速度，带世界坐标系位姿
         # state = min_values + [distance, cos, sin] + [action[0], action[1]] + vel + list(pose)
 
-        assert len(state) == self.state_dim
+        assert len(state) == self.state_dim, (
+            f"Prepared state length {len(state)} does not match state_dim {self.state_dim}. "
+            f"max_bins={max_bins}, pose_encoding_dim={self.pose_encoding_dim}"
+        )
         terminal = 1 if collision or goal else 0
 
         return state, terminal

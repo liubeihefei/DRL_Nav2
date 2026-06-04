@@ -16,7 +16,7 @@ def main(args=None):
     """Main training function"""
     action_dim = 2  # number of actions produced by the model
     max_action = 1  # 2.5，maximum absolute value of output actions
-    state_dim = 28  # number of input values in the neural network (vector length of state input)
+    state_dim = 49  # 20 lidar bins + distance/cos/sin + previous action + Fourier pose
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
@@ -37,6 +37,7 @@ def main(args=None):
         50  # number of training iterations to run during pre-training
     )
     save_every = 100  # save the model every n training cycles
+    pose_encoding_freqs = (1.0, 2.0, 4.0, 8.0)
     history_n = 1  # 使用多少帧历史状态，包含当前
     best_success = 0.0  # 记录最好的测试成功率
     best_reward = 0.0  # 记录最好的测试奖励
@@ -44,6 +45,7 @@ def main(args=None):
     diy_world_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.model"  # 自定义环境文件路径
     obj_cache_path = "/home/horsefly/DRL_Nav2/src/turtlebot3_simulations/turtlebot3_gazebo/worlds/diy/40by40.json"  # 物体信息缓存路径
     world_size = 38.0   # 自定义环境大小，默认正方形
+    pose_xy_scale = world_size / 2.0
     min_pose_distance = 0.5  # 随机生成点到任何障碍物的最小距离
     target_reached_delta = 0.5       # 到达目标的距离阈值（初始值）
     target_reached_delta_min = 0.1   # 到达目标的距离阈值下限
@@ -66,7 +68,9 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=False,
-        history_n=history_n
+        history_n=history_n,
+        pose_encoding_freqs=pose_encoding_freqs,
+        pose_xy_scale=pose_xy_scale,
     )  # instantiate a model
 
     ros = ROS_env(

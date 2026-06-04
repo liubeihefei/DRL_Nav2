@@ -6,19 +6,32 @@ from utils import record_eval_positions
 import time
 
 # Configuration parameters
-state_dim = 25
+state_dim = 49
 action_dim = 2
 max_action = 1.0
 max_steps = 300
 scenarios_nums = 1000
 history_n = 1
+pose_encoding_freqs = (1.0, 2.0, 4.0, 8.0)
+pose_xy_scale = 19.0
+linear_vel_scale = 1.0
+angular_vel_scale = 0.5
 
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-model = SAC(state_dim=state_dim, action_dim=action_dim, max_action=max_action, 
-           device=device, save_every=0, load_model=False, history_n=history_n)
+model = SAC(
+    state_dim=state_dim,
+    action_dim=action_dim,
+    max_action=max_action,
+    device=device,
+    save_every=0,
+    load_model=False,
+    history_n=history_n,
+    pose_encoding_freqs=pose_encoding_freqs,
+    pose_xy_scale=pose_xy_scale,
+)
 
 # Load weights
 model.actor.load_state_dict(torch.load('/home/horsefly/下载/BEST/SAC_actor.pth', map_location=device))
@@ -43,14 +56,14 @@ for i, scenario in enumerate(eval_scenarios):
     start_time = time.time()
     
     # Reset scenario
-    latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.eval(scenario=scenario)
+    latest_scan, distance, cos, sin, collision, goal, a, reward, vel, pose = ros.eval(scenario=scenario)
     
     scenario_steps = 0
     scenario_completed = False
 
     # 多帧时用第一帧进行扩展
     state, _ = model.prepare_state(
-        latest_scan, distance, cos, sin, collision, goal, a, vel
+        latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose
     )
     history_state = np.concatenate([state] * history_n)
     
@@ -59,7 +72,9 @@ for i, scenario in enumerate(eval_scenarios):
         total_steps += 1
         
         # Prepare state
-        state, terminal = model.prepare_state(latest_scan, distance, cos, sin, collision, goal, a, vel)
+        state, terminal = model.prepare_state(
+            latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose
+        )
 
         history_state = np.concatenate([history_state[state_dim:], state])
 
@@ -71,7 +86,10 @@ for i, scenario in enumerate(eval_scenarios):
         # 多帧历史处理
         action = model.get_action(history_state, False)
 
-        a_in = [(action[0] + 1) / 2, action[1]]
+        a_in = [
+            ((action[0] + 1) / 2) * linear_vel_scale,
+            action[1] * angular_vel_scale,
+        ]
         # # 动作截断
         # a_in = [
         #     # 线速度为[-2.5, 2.5]，截断到[0, 2.5]
@@ -81,7 +99,7 @@ for i, scenario in enumerate(eval_scenarios):
         # ]
         
         # Execute one step
-        latest_scan, distance, cos, sin, collision, goal, a, reward, vel = ros.step(
+        latest_scan, distance, cos, sin, collision, goal, a, reward, vel, pose = ros.step(
             lin_velocity=a_in[0], ang_velocity=a_in[1]
         )
         
