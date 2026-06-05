@@ -35,7 +35,16 @@ class Pretraining:
                     vel = [0, 0]
 
                     state, terminal = self.model.prepare_state(
-                        latest_scan, distance, cos, sin, collision, goal, action, vel, pose=pose
+                        latest_scan,
+                        distance,
+                        cos,
+                        sin,
+                        collision,
+                        goal,
+                        action,
+                        vel,
+                        pose=pose,
+                        reference_pose=pose,
                     )
 
                     if terminal:
@@ -62,6 +71,7 @@ class Pretraining:
                         next_action,
                         vel,
                         pose=next_pose,
+                        reference_pose=next_pose,
                     )
                     reward = self.reward_function(
                         next_goal, next_collision, action, next_latest_scan, distance, next_distance

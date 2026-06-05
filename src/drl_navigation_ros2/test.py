@@ -5,6 +5,46 @@ from ros_python import ROS_env
 from utils import record_eval_positions
 import time
 
+
+def make_frame(latest_scan, distance, cos, sin, collision, goal, action, vel, pose):
+    return {
+        "latest_scan": latest_scan,
+        "distance": distance,
+        "cos": cos,
+        "sin": sin,
+        "collision": collision,
+        "goal": goal,
+        "action": action,
+        "vel": vel,
+        "pose": pose,
+    }
+
+
+def prepare_frame_state(model, frame, reference_pose=None):
+    return model.prepare_state(
+        frame["latest_scan"],
+        frame["distance"],
+        frame["cos"],
+        frame["sin"],
+        frame["collision"],
+        frame["goal"],
+        frame["action"],
+        frame["vel"],
+        pose=frame["pose"],
+        reference_pose=reference_pose,
+    )
+
+
+def build_history_state(model, frames, history_n, reference_pose=None):
+    states = [
+        prepare_frame_state(model, frame, reference_pose=reference_pose)[0]
+        for frame in frames
+    ]
+    while len(states) < history_n:
+        states.insert(0, states[0])
+    return np.concatenate(states[-history_n:])
+
+
 # Configuration parameters
 state_dim = 49
 action_dim = 2
@@ -14,6 +54,7 @@ scenarios_nums = 1000
 history_n = 1
 pose_encoding_freqs = (1.0, 2.0, 4.0, 8.0)
 pose_xy_scale = 19.0
+pose_reference_frame = "odom"
 linear_vel_scale = 1.0
 angular_vel_scale = 0.5
 
@@ -31,6 +72,7 @@ model = SAC(
     history_n=history_n,
     pose_encoding_freqs=pose_encoding_freqs,
     pose_xy_scale=pose_xy_scale,
+    pose_reference_frame=pose_reference_frame,
 )
 
 # Load weights
@@ -62,21 +104,31 @@ for i, scenario in enumerate(eval_scenarios):
     scenario_completed = False
 
     # 多帧时用第一帧进行扩展
-    state, _ = model.prepare_state(
-        latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose
+    current_frame = make_frame(
+        latest_scan, distance, cos, sin, collision, goal, a, vel, pose
     )
-    history_state = np.concatenate([state] * history_n)
+    history_frames = [current_frame] * history_n
     
     for count in range(max_steps):
         scenario_steps += 1
         total_steps += 1
         
-        # Prepare state
-        state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose
+        current_frame = make_frame(
+            latest_scan, distance, cos, sin, collision, goal, a, vel, pose
         )
-
-        history_state = np.concatenate([history_state[state_dim:], state])
+        history_frames.append(current_frame)
+        history_frames = history_frames[-history_n:]
+        state, terminal = prepare_frame_state(
+            model,
+            current_frame,
+            reference_pose=pose,
+        )
+        history_state = build_history_state(
+            model,
+            history_frames,
+            history_n,
+            reference_pose=pose,
+        )
 
         if terminal:
             break

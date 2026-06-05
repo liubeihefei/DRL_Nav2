@@ -12,6 +12,53 @@ from pretrain_utils import Pretraining
 from collections import deque
 
 
+def make_frame(latest_scan, distance, cos, sin, collision, goal, action, vel, pose):
+    return {
+        "latest_scan": latest_scan,
+        "distance": distance,
+        "cos": cos,
+        "sin": sin,
+        "collision": collision,
+        "goal": goal,
+        "action": action,
+        "vel": vel,
+        "pose": pose,
+    }
+
+
+def prepare_frame_state(model, frame, reference_pose=None, add_lidar_noise=False, lidar_noise_max=0.0):
+    return model.prepare_state(
+        frame["latest_scan"],
+        frame["distance"],
+        frame["cos"],
+        frame["sin"],
+        frame["collision"],
+        frame["goal"],
+        frame["action"],
+        frame["vel"],
+        pose=frame["pose"],
+        reference_pose=reference_pose,
+        add_lidar_noise=add_lidar_noise,
+        lidar_noise_max=lidar_noise_max,
+    )
+
+
+def build_history_state(model, frames, history_n, reference_pose=None, add_lidar_noise=False, lidar_noise_max=0.0):
+    states = [
+        prepare_frame_state(
+            model,
+            frame,
+            reference_pose=reference_pose,
+            add_lidar_noise=add_lidar_noise,
+            lidar_noise_max=lidar_noise_max,
+        )[0]
+        for frame in frames
+    ]
+    while len(states) < history_n:
+        states.insert(0, states[0])
+    return np.concatenate(states[-history_n:])
+
+
 def main(args=None):
     """Main training function"""
     action_dim = 2  # number of actions produced by the model
@@ -38,6 +85,7 @@ def main(args=None):
     )
     save_every = 100  # save the model every n training cycles
     pose_encoding_freqs = (1.0, 2.0, 4.0, 8.0)
+    pose_reference_frame = "odom"
     history_n = 1  # 使用多少帧历史状态，包含当前
     best_success = 0.0  # 记录最好的测试成功率
     best_reward = 0.0  # 记录最好的测试奖励
@@ -71,6 +119,7 @@ def main(args=None):
         history_n=history_n,
         pose_encoding_freqs=pose_encoding_freqs,
         pose_xy_scale=pose_xy_scale,
+        pose_reference_frame=pose_reference_frame,
     )  # instantiate a model
 
     ros = ROS_env(
@@ -120,9 +169,10 @@ def main(args=None):
 
     # 将初始雷达数据添加到缓冲区
     scan_buffer.append(latest_scan)
-
-    # 每个episode是否刚开始收集的标志位，用于重置历史帧
-    epi_end_flag = True
+    current_frame = make_frame(
+        latest_scan, distance, cos, sin, collision, goal, a, vel, pose
+    )
+    history_frames = deque([current_frame] * history_n, maxlen=history_n)
 
     while epoch < max_epochs:  # train until max_epochs is reached
         last_distance = distance
@@ -135,19 +185,25 @@ def main(args=None):
         for _ in range(delay_idx):
             scan_buffer.popleft()
 
-        # 对当前环境进行状态表示
-        state, terminal = model.prepare_state(
-            delayed_scan, distance, cos, sin, collision, goal, a, vel, pose=pose, add_lidar_noise=add_lidar_noise, lidar_noise_max=lidar_noise_max
-        )  # get state a state representation from returned data from the environment
-
-        # 多帧时用第一帧进行扩展
-        if epi_end_flag:
-            history_state = np.concatenate([state] * history_n)
-            # 重置为false，表示此轮不需要再扩展
-            epi_end_flag = False
-
-        # 历史进一帧，出一帧
-        history_state = np.concatenate([history_state[state_dim:], state])
+        current_frame = make_frame(
+            delayed_scan, distance, cos, sin, collision, goal, a, vel, pose
+        )
+        history_frames.append(current_frame)
+        state, terminal = prepare_frame_state(
+            model,
+            current_frame,
+            reference_pose=pose,
+            add_lidar_noise=add_lidar_noise,
+            lidar_noise_max=lidar_noise_max,
+        )
+        history_state = build_history_state(
+            model,
+            history_frames,
+            history_n,
+            reference_pose=pose,
+            add_lidar_noise=add_lidar_noise,
+            lidar_noise_max=lidar_noise_max,
+        )
 
         # print(history_state)
         # print("--------------------------------\n")
@@ -177,12 +233,28 @@ def main(args=None):
         # 将最新的雷达数据添加到缓冲区
         scan_buffer.append(latest_scan)
 
-        next_state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose, add_lidar_noise=add_lidar_noise, lidar_noise_max=lidar_noise_max
+        next_frame = make_frame(
+            latest_scan, distance, cos, sin, collision, goal, a, vel, pose
+        )
+        next_state, terminal = prepare_frame_state(
+            model,
+            next_frame,
+            reference_pose=pose,
+            add_lidar_noise=add_lidar_noise,
+            lidar_noise_max=lidar_noise_max,
         )  # get a next state representation
 
         # 未来用历史进一帧，出一帧
-        future_state = np.concatenate([history_state[state_dim:], next_state])
+        future_frames = deque(history_frames, maxlen=history_n)
+        future_frames.append(next_frame)
+        future_state = build_history_state(
+            model,
+            future_frames,
+            history_n,
+            reference_pose=pose,
+            add_lidar_noise=add_lidar_noise,
+            lidar_noise_max=lidar_noise_max,
+        )
         
         replay_buffer.add(
             history_state, action, reward, terminal, future_state
@@ -208,9 +280,11 @@ def main(args=None):
             scan_buffer.clear()
             # 将初始雷达数据添加到缓冲区
             scan_buffer.append(latest_scan)
+            current_frame = make_frame(
+                latest_scan, distance, cos, sin, collision, goal, a, vel, pose
+            )
+            history_frames = deque([current_frame] * history_n, maxlen=history_n)
             episode += 1
-            # 收集结束，下个epoch需要进行扩展
-            epi_end_flag = True
             # if episode % train_every_n == 0:
             #     model.train(
             #         replay_buffer=replay_buffer,
@@ -271,19 +345,33 @@ def eval(model, env, scenarios, epoch, max_steps, state_dim, history_n, best_suc
         )
 
         # 多帧时用第一帧进行扩展
-        state, _ = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose, add_lidar_noise=False, lidar_noise_max=0.0
+        current_frame = make_frame(
+            latest_scan, distance, cos, sin, collision, goal, a, vel, pose
         )
-        history_state = np.concatenate([state] * history_n)
+        history_frames = deque([current_frame] * history_n, maxlen=history_n)
 
         while count < max_steps:
             last_distance = distance
 
-            state, terminal = model.prepare_state(
-                latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose, add_lidar_noise=False, lidar_noise_max=0.0
+            current_frame = make_frame(
+                latest_scan, distance, cos, sin, collision, goal, a, vel, pose
             )
-
-            history_state = np.concatenate([history_state[state_dim:], state])
+            history_frames.append(current_frame)
+            state, terminal = prepare_frame_state(
+                model,
+                current_frame,
+                reference_pose=pose,
+                add_lidar_noise=False,
+                lidar_noise_max=0.0,
+            )
+            history_state = build_history_state(
+                model,
+                history_frames,
+                history_n,
+                reference_pose=pose,
+                add_lidar_noise=False,
+                lidar_noise_max=0.0,
+            )
 
             if terminal:
                 break
@@ -352,19 +440,33 @@ def eval_diy(model, env, eval_cnt, epoch, max_steps, state_dim, history_n, best_
         latest_scan, distance, cos, sin, collision, goal, a, reward, vel, pose = env.reset()
 
         # 多帧时用第一帧进行扩展
-        state, _ = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose, add_lidar_noise=False, lidar_noise_max=0.0
+        current_frame = make_frame(
+            latest_scan, distance, cos, sin, collision, goal, a, vel, pose
         )
-        history_state = np.concatenate([state] * history_n)
+        history_frames = deque([current_frame] * history_n, maxlen=history_n)
 
         while count < max_steps:
             last_distance = distance
 
-            state, terminal = model.prepare_state(
-                latest_scan, distance, cos, sin, collision, goal, a, vel, pose=pose, add_lidar_noise=False, lidar_noise_max=0.0
+            current_frame = make_frame(
+                latest_scan, distance, cos, sin, collision, goal, a, vel, pose
             )
-
-            history_state = np.concatenate([history_state[state_dim:], state])
+            history_frames.append(current_frame)
+            state, terminal = prepare_frame_state(
+                model,
+                current_frame,
+                reference_pose=pose,
+                add_lidar_noise=False,
+                lidar_noise_max=0.0,
+            )
+            history_state = build_history_state(
+                model,
+                history_frames,
+                history_n,
+                reference_pose=pose,
+                add_lidar_noise=False,
+                lidar_noise_max=0.0,
+            )
 
             if terminal:
                 cnt = cnt + 1

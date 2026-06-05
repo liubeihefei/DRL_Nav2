@@ -40,6 +40,7 @@ class SAC(object):
         load_directory=Path("src/drl_navigation_ros2/models/SAC"),
         pose_encoding_freqs=(1.0, 2.0, 4.0, 8.0),
         pose_xy_scale=10.0,
+        pose_reference_frame="odom",
     ):
         super().__init__()
 
@@ -60,6 +61,11 @@ class SAC(object):
         self.pose_encoding_freqs = np.array(pose_encoding_freqs, dtype=np.float32)
         self.pose_xy_scale = float(pose_xy_scale)
         self.pose_encoding_dim = len(self.pose_encoding_freqs) * 6
+        if pose_reference_frame not in ("odom", "current"):
+            raise ValueError(
+                "pose_reference_frame must be either 'odom' or 'current'"
+            )
+        self.pose_reference_frame = pose_reference_frame
 
         self.train_metrics_dict = { "train_critic/loss_av": [],
                                     "train_actor/loss_av": [],
@@ -263,7 +269,28 @@ class SAC(object):
         if step % self.critic_target_update_frequency == 0:
             utils.soft_update_params(self.critic, self.critic_target, self.critic_tau)
 
-    def encode_pose(self, pose):
+    @staticmethod
+    def wrap_to_pi(angle):
+        return (angle + np.pi) % (2 * np.pi) - np.pi
+
+    def relative_pose(self, pose, reference_pose):
+        x, y, yaw = pose
+        ref_x, ref_y, ref_yaw = reference_pose
+        dx = float(x) - float(ref_x)
+        dy = float(y) - float(ref_y)
+        ref_yaw = float(ref_yaw)
+
+        rel_x = np.cos(ref_yaw) * dx + np.sin(ref_yaw) * dy
+        rel_y = -np.sin(ref_yaw) * dx + np.cos(ref_yaw) * dy
+        rel_yaw = self.wrap_to_pi(float(yaw) - ref_yaw)
+        return rel_x, rel_y, rel_yaw
+
+    def encode_pose(self, pose, reference_pose=None):
+        if self.pose_reference_frame == "current":
+            if reference_pose is None:
+                reference_pose = pose
+            pose = self.relative_pose(pose, reference_pose)
+
         x, y, yaw = pose
         x_norm = np.clip(float(x) / self.pose_xy_scale, -1.0, 1.0)
         y_norm = np.clip(float(y) / self.pose_xy_scale, -1.0, 1.0)
@@ -283,7 +310,7 @@ class SAC(object):
             )
         return encoded_pose
 
-    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel, pose=(0.0, 0.0, 0.0), add_lidar_noise=False, lidar_noise_max=0.3):
+    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, vel, pose=(0.0, 0.0, 0.0), reference_pose=None, add_lidar_noise=False, lidar_noise_max=0.3):
         # update the returned data from ROS into a form used for learning in the current model
         latest_scan = np.array(latest_scan)
 
@@ -299,7 +326,7 @@ class SAC(object):
             latest_scan = np.clip(latest_scan, 0.0, 7.0)
 
         # 不带速度：distance, cos, sin, action[0], action[1], x, y, yaw = 8 维
-        pose_features = self.encode_pose(pose)
+        pose_features = self.encode_pose(pose, reference_pose=reference_pose)
 
         # distance, cos, sin, action[0], action[1], encoded pose
         max_bins = self.state_dim - 5 - self.pose_encoding_dim
